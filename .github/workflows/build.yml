@@ -1,0 +1,43 @@
+name: Build portable Windows app
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/DwreanTv/DwreanTv.csproj
+
+      - name: Publish portable build
+        run: dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-portable-win-x64.zip -Force
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dwrean-tv-portable-win-x64
+          path: dwrean-tv-portable-win-x64.zip
+          if-no-files-found: error
+          compression-level: 0
