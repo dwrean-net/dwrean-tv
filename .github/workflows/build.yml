@@ -4,8 +4,6 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-  release:
-    types: [ published ]
 
 permissions:
   contents: read
@@ -29,15 +27,16 @@ jobs:
       - name: Publish portable build
         run: dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -o publish
 
-      - name: Create ZIP
+      - name: Remove unused VLC architectures
         shell: pwsh
         run: |
-          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-portable-win-x64.zip -Force
+          Remove-Item -Recurse -Force publish\libvlc\win-x86 -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force publish\libvlc\win-arm64 -ErrorAction SilentlyContinue
 
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
           name: dwrean-tv-portable-win-x64
-          path: dwrean-tv-portable-win-x64.zip
+          path: publish/
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 9
