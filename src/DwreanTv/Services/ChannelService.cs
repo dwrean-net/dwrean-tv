@@ -30,7 +30,7 @@ public sealed class ChannelService
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.1 (+https://www.dwrean.net/)");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.2 (+https://www.dwrean.net/)");
 
         var dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
         Directory.CreateDirectory(dataDirectory);
@@ -68,7 +68,7 @@ public sealed class ChannelService
 
         if (channels.Count == 0)
         {
-            throw new InvalidOperationException("Η online λίστα δεν περιέχει ενεργά κανάλια.");
+            throw new InvalidOperationException("Η online λίστα δεν περιέχει ενεργά τηλεοπτικά κανάλια.");
         }
 
         await SaveCacheAsync(channels);
@@ -79,6 +79,7 @@ public sealed class ChannelService
     {
         var channels = new List<Channel>();
         var currentCategory = "Άλλα κανάλια";
+        var skipCurrentCategory = false;
 
         foreach (var rawLine in markdown.Split('\n'))
         {
@@ -87,7 +88,14 @@ public sealed class ChannelService
             var headingMatch = HeadingRegex.Match(line);
             if (headingMatch.Success)
             {
-                currentCategory = TranslateCategory(WebUtility.HtmlDecode(headingMatch.Groups["title"].Value.Trim()));
+                var heading = WebUtility.HtmlDecode(headingMatch.Groups["title"].Value.Trim());
+                skipCurrentCategory = heading.Contains("Radio", StringComparison.OrdinalIgnoreCase);
+                currentCategory = TranslateCategory(heading);
+                continue;
+            }
+
+            if (skipCurrentCategory)
+            {
                 continue;
             }
 
@@ -109,6 +117,11 @@ public sealed class ChannelService
                 continue;
             }
 
+            if (IsYouTubeUrl(url) || rawName.Contains('Ⓨ'))
+            {
+                continue;
+            }
+
             channels.Add(new Channel
             {
                 Name = CleanName(rawName),
@@ -117,19 +130,16 @@ public sealed class ChannelService
                 EpgId = epgId,
                 Category = currentCategory,
                 GeoBlocked = rawName.Contains('Ⓖ'),
-                IsYouTube = rawName.Contains('Ⓨ') || url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
+                IsYouTube = false
             });
         }
 
-        return channels
-            .GroupBy(c => string.IsNullOrWhiteSpace(c.EpgId) ? $"{c.Name}|{c.Url}" : c.EpgId, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .ToList();
+        return Sanitize(channels);
     }
 
     private async Task SaveCacheAsync(List<Channel> channels)
     {
-        var json = JsonSerializer.Serialize(channels, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(Sanitize(channels), new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(_cachePath, json);
     }
 
@@ -143,7 +153,8 @@ public sealed class ChannelService
         try
         {
             var json = await File.ReadAllTextAsync(_cachePath);
-            return JsonSerializer.Deserialize<List<Channel>>(json) ?? new List<Channel>();
+            var cached = JsonSerializer.Deserialize<List<Channel>>(json) ?? new List<Channel>();
+            return Sanitize(cached);
         }
         catch
         {
@@ -159,6 +170,24 @@ public sealed class ChannelService
         }
 
         return File.GetLastWriteTime(_cachePath);
+    }
+
+    private static List<Channel> Sanitize(IEnumerable<Channel> channels)
+    {
+        return channels
+            .Where(c => !c.IsYouTube)
+            .Where(c => !IsYouTubeUrl(c.Url))
+            .Where(c => !c.Category.Contains("Radio", StringComparison.OrdinalIgnoreCase))
+            .Where(c => !c.Category.Contains("Ραδιό", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(c => string.IsNullOrWhiteSpace(c.EpgId) ? $"{c.Name}|{c.Url}" : c.EpgId, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+    }
+
+    private static bool IsYouTubeUrl(string url)
+    {
+        return url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+               url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string CleanName(string value)
@@ -185,7 +214,6 @@ public sealed class ChannelService
         if (category.Contains("Ionian", StringComparison.OrdinalIgnoreCase)) return "Ιόνιο";
         if (category.Contains("Macedonia", StringComparison.OrdinalIgnoreCase)) return "Μακεδονία";
         if (category.Contains("Thrace", StringComparison.OrdinalIgnoreCase)) return "Θράκη";
-        if (category.Contains("Invalid", StringComparison.OrdinalIgnoreCase)) return "Μη διαθέσιμα";
         return category;
     }
 }

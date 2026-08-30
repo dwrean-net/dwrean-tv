@@ -1,61 +1,40 @@
-<p align="center">
-  <strong>dwrean.net</strong>
-</p>
+# dwrean Ελληνική Τηλεόραση
 
-<h1 align="center">dwrean Ελληνική Τηλεόραση</h1>
-
-<p align="center">
-  Δωρεάν portable IPTV εφαρμογή για ελληνικά τηλεοπτικά κανάλια σε Windows.
-</p>
-
-![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-blue)
-![Portable](https://img.shields.io/badge/Portable-Yes-green)
-![.NET](https://img.shields.io/badge/.NET-8-purple)
-
-## Τι είναι
-
-Το **dwrean Ελληνική Τηλεόραση** είναι μια απλή portable εφαρμογή για Windows που συγκεντρώνει δωρεάν διαθέσιμα ελληνικά τηλεοπτικά streams σε ένα εύχρηστο περιβάλλον.
-
-Η λίστα καναλιών διαβάζεται online από το δημόσιο project [Free-TV/IPTV](https://github.com/Free-TV/IPTV), ώστε αλλαγές σε κανάλια και stream URLs να μπορούν να εμφανίζονται χωρίς νέα έκδοση της εφαρμογής.
+Portable εφαρμογή IPTV για Windows 64-bit με δωρεάν ελληνικά τηλεοπτικά κανάλια.
 
 ## Χαρακτηριστικά
 
-- Αυτόματη ενημέρωση της ελληνικής λίστας καναλιών
-- Τοπικό cache της τελευταίας επιτυχημένης λίστας
-- Κατηγορίες καναλιών
-- Αναζήτηση
-- Αγαπημένα
+- Αυτόματη online ενημέρωση καναλιών από το Free-TV/IPTV
+- Μόνο τηλεοπτικά κανάλια — δεν περιλαμβάνονται Radio ή YouTube streams
+- Αναζήτηση και κατηγορίες
+- Αγαπημένα κανάλια
 - Αποθήκευση τελευταίου καναλιού
-- Player βασισμένος σε LibVLC
-- Υποστήριξη HLS και MPEG-DASH
-- Πλήρης οθόνη
-- Έλεγχος έντασης και mute
+- Fullscreen προβολή
+- Επαναφόρτωση καναλιού όταν ένα stream αποτύχει
+- Offline cache της τελευταίας επιτυχημένης λίστας
 - Portable λειτουργία χωρίς εγκατάσταση
-- Windows 10/11 64-bit
+- Ενσωματωμένο icon και branding dwrean.net
+
+## Δημιουργία
+
+**Κυριάκος Οικονομίδης — dwrean.net**
+
+https://www.dwrean.net/
 
 ## Πηγή καναλιών
 
-Η εφαρμογή δεν φιλοξενεί τηλεοπτικό περιεχόμενο και δεν αναμεταδίδει streams. Διαβάζει συνδέσμους προς δωρεάν διαθέσιμα streams από:
+Η εφαρμογή διαβάζει τη λίστα:
 
 https://github.com/Free-TV/IPTV/blob/master/lists/greece.md
 
-Η διαθεσιμότητα κάθε καναλιού εξαρτάται από τον αντίστοιχο πάροχο/σταθμό. Ορισμένα streams ενδέχεται να έχουν γεωγραφικούς περιορισμούς.
+Η εφαρμογή δεν φιλοξενεί ούτε αναμεταδίδει η ίδια τηλεοπτικό περιεχόμενο. Χρησιμοποιεί τους δημόσιους stream συνδέσμους της παραπάνω λίστας και φιλτράρει τις εγγραφές YouTube και Radio.
 
 ## Build
 
-Απαιτείται .NET 8 SDK.
+Το GitHub Actions δημιουργεί αυτόματα self-contained portable build για Windows x64.
 
-```powershell
-dotnet restore
-dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -o publish
-```
+Τρέξε το `dwrean.TV.exe` μέσα από τον φάκελο του portable πακέτου.
 
-Το GitHub Actions workflow δημιουργεί αυτόματα ZIP portable build.
+## Έκδοση
 
-## Σχετικά
-
-Δημιουργήθηκε για το [dwrean.net](https://www.dwrean.net/).
-
----
-
-**dwrean Ελληνική Τηλεόραση — δωρεάν ελληνική τηλεόραση για Windows**
+**v0.2.0**

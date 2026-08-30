@@ -8,10 +8,14 @@ namespace DwreanTv;
 
 public sealed class MainForm : Form
 {
+    private const string AppVersion = "0.2.0";
+    private const string DwreanUrl = "https://www.dwrean.net/";
+    private const string SourcePageUrl = "https://github.com/Free-TV/IPTV/blob/master/lists/greece.md";
+
     private readonly Color _background = Color.FromArgb(17, 19, 24);
     private readonly Color _panel = Color.FromArgb(25, 28, 35);
     private readonly Color _panelHover = Color.FromArgb(35, 39, 48);
-    private readonly Color _accent = Color.FromArgb(229, 57, 53);
+    private readonly Color _accent = Color.FromArgb(235, 45, 50);
     private readonly Color _text = Color.FromArgb(242, 243, 245);
     private readonly Color _muted = Color.FromArgb(157, 163, 175);
 
@@ -35,6 +39,7 @@ public sealed class MainForm : Form
     private readonly Button _playPauseButton;
     private readonly Button _muteButton;
     private readonly Button _favoriteCurrentButton;
+    private readonly Button _retryButton;
     private readonly Button _fullScreenButton;
     private readonly TrackBar _volumeTrackBar;
     private readonly Label _nowPlayingLabel;
@@ -51,12 +56,25 @@ public sealed class MainForm : Form
     {
         Text = "dwrean Ελληνική Τηλεόραση";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(1050, 680);
+        MinimumSize = new Size(1080, 700);
         Size = new Size(1360, 820);
         BackColor = _background;
         ForeColor = _text;
         Font = new Font("Segoe UI", 9F);
         KeyPreview = true;
+
+        try
+        {
+            var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            if (appIcon is not null)
+            {
+                Icon = appIcon;
+            }
+        }
+        catch
+        {
+            // The application remains usable even if Windows cannot read the executable icon.
+        }
 
         _settings = _settingsService.Load();
 
@@ -68,7 +86,15 @@ public sealed class MainForm : Form
 
         _headerPanel = BuildHeader();
         _sidebarPanel = BuildSidebar(out _searchBox, out _categoryCombo, out _favoritesFilterButton, out _refreshButton, out _channelFlow);
-        _controlsPanel = BuildControls(out _playPauseButton, out _muteButton, out _favoriteCurrentButton, out _fullScreenButton, out _volumeTrackBar, out _nowPlayingLabel, out _statusLabel);
+        _controlsPanel = BuildControls(
+            out _playPauseButton,
+            out _muteButton,
+            out _favoriteCurrentButton,
+            out _retryButton,
+            out _fullScreenButton,
+            out _volumeTrackBar,
+            out _nowPlayingLabel,
+            out _statusLabel);
 
         _videoView = new VideoView
         {
@@ -124,44 +150,99 @@ public sealed class MainForm : Form
         var panel = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 68,
+            Height = 82,
             BackColor = Color.FromArgb(20, 22, 28),
-            Padding = new Padding(22, 0, 22, 0)
+            Padding = new Padding(20, 0, 20, 0)
         };
 
-        var brandDot = new Label
+        var appLogo = new PictureBox
         {
-            Text = "●",
+            Width = 48,
+            Height = 48,
+            Location = new Point(20, 17),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.Transparent
+        };
+
+        try
+        {
+            appLogo.Image = Icon?.ToBitmap();
+        }
+        catch
+        {
+            // Keep an empty logo box if the icon cannot be converted to a bitmap.
+        }
+
+        var dwreanLabel = new Label
+        {
+            Text = "dwrean",
             ForeColor = _accent,
-            Font = new Font("Segoe UI", 15F, FontStyle.Bold),
+            Font = new Font("Segoe UI Black", 17F, FontStyle.Bold),
             AutoSize = true,
-            Location = new Point(22, 20)
+            Location = new Point(79, 13)
         };
 
         var title = new Label
         {
-            Text = "dwrean Ελληνική Τηλεόραση",
+            Text = "Ελληνική Τηλεόραση",
             ForeColor = _text,
-            Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold),
+            Font = new Font("Segoe UI Semibold", 17F, FontStyle.Bold),
             AutoSize = true,
-            Location = new Point(47, 19)
+            Location = new Point(161, 13)
         };
 
         var subtitle = new Label
         {
-            Text = "Δωρεάν ελληνικά τηλεοπτικά κανάλια • dwrean.net",
+            Text = "Δωρεάν ελληνικά τηλεοπτικά κανάλια • χωρίς εγκατάσταση",
             ForeColor = _muted,
-            Font = new Font("Segoe UI", 9F),
+            Font = new Font("Segoe UI", 8.8F),
             AutoSize = true,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(930, 26)
+            Location = new Point(81, 48)
         };
 
-        panel.Resize += (_, _) => subtitle.Left = Math.Max(title.Right + 30, panel.ClientSize.Width - subtitle.Width - 22);
+        var siteLink = new LinkLabel
+        {
+            Text = "dwrean.net",
+            AutoSize = true,
+            LinkColor = Color.FromArgb(255, 103, 103),
+            ActiveLinkColor = Color.White,
+            VisitedLinkColor = Color.FromArgb(255, 103, 103),
+            Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        siteLink.LinkClicked += (_, _) => OpenUrl(DwreanUrl);
 
-        panel.Controls.Add(brandDot);
+        var aboutButton = new Button
+        {
+            Text = "ⓘ  Σχετικά",
+            FlatStyle = FlatStyle.Flat,
+            FlatAppearance = { BorderSize = 1, BorderColor = Color.FromArgb(60, 65, 76) },
+            BackColor = Color.FromArgb(31, 35, 43),
+            ForeColor = _text,
+            Cursor = Cursors.Hand,
+            Width = 102,
+            Height = 34,
+            Font = new Font("Segoe UI Semibold", 9F)
+        };
+        aboutButton.Click += (_, _) => ShowAboutDialog();
+
+        void PositionRightControls()
+        {
+            aboutButton.Left = panel.ClientSize.Width - aboutButton.Width - 20;
+            aboutButton.Top = 24;
+            siteLink.Left = aboutButton.Left - siteLink.Width - 22;
+            siteLink.Top = 32;
+        }
+
+        panel.Resize += (_, _) => PositionRightControls();
+        PositionRightControls();
+
+        panel.Controls.Add(appLogo);
+        panel.Controls.Add(dwreanLabel);
         panel.Controls.Add(title);
         panel.Controls.Add(subtitle);
+        panel.Controls.Add(siteLink);
+        panel.Controls.Add(aboutButton);
         return panel;
     }
 
@@ -220,6 +301,39 @@ public sealed class MainForm : Form
         filters.Controls.Add(favoritesButton);
         filters.Controls.Add(refreshButton);
 
+        var footer = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 66,
+            BackColor = Color.FromArgb(21, 24, 30),
+            Padding = new Padding(0, 9, 0, 0)
+        };
+
+        var creator = new Label
+        {
+            Text = "Δημιουργία: Κυριάκος Οικονομίδης",
+            ForeColor = _muted,
+            Font = new Font("Segoe UI", 8F),
+            AutoSize = true,
+            Location = new Point(8, 10)
+        };
+
+        var footerLink = new LinkLabel
+        {
+            Text = $"dwrean.net  •  v{AppVersion}",
+            LinkColor = Color.FromArgb(255, 103, 103),
+            ActiveLinkColor = Color.White,
+            VisitedLinkColor = Color.FromArgb(255, 103, 103),
+            Font = new Font("Segoe UI Semibold", 8.2F),
+            AutoSize = true,
+            Cursor = Cursors.Hand,
+            Location = new Point(8, 35)
+        };
+        footerLink.LinkClicked += (_, _) => OpenUrl(DwreanUrl);
+
+        footer.Controls.Add(creator);
+        footer.Controls.Add(footerLink);
+
         channelFlow = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -231,6 +345,7 @@ public sealed class MainForm : Form
         };
 
         panel.Controls.Add(channelFlow);
+        panel.Controls.Add(footer);
         panel.Controls.Add(filters);
         return panel;
     }
@@ -239,6 +354,7 @@ public sealed class MainForm : Form
         out Button playPauseButton,
         out Button muteButton,
         out Button favoriteButton,
+        out Button retryButton,
         out Button fullScreenButton,
         out TrackBar volumeTrackBar,
         out Label nowPlaying,
@@ -267,7 +383,9 @@ public sealed class MainForm : Form
         };
 
         favoriteButton = CreateControlButton("☆", 274, 20, 48);
-        fullScreenButton = CreateControlButton("⛶", 332, 20, 48);
+        retryButton = CreateControlButton("↻", 332, 20, 48);
+        retryButton.AccessibleName = "Επαναφόρτωση καναλιού";
+        fullScreenButton = CreateControlButton("⛶", 390, 20, 48);
 
         nowPlaying = new Label
         {
@@ -275,7 +393,7 @@ public sealed class MainForm : Form
             ForeColor = _text,
             Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold),
             AutoSize = true,
-            Location = new Point(405, 18)
+            Location = new Point(463, 18)
         };
 
         status = new Label
@@ -284,13 +402,14 @@ public sealed class MainForm : Form
             ForeColor = _muted,
             Font = new Font("Segoe UI", 8.5F),
             AutoSize = true,
-            Location = new Point(405, 43)
+            Location = new Point(463, 43)
         };
 
         panel.Controls.Add(playPauseButton);
         panel.Controls.Add(muteButton);
         panel.Controls.Add(volumeTrackBar);
         panel.Controls.Add(favoriteButton);
+        panel.Controls.Add(retryButton);
         panel.Controls.Add(fullScreenButton);
         panel.Controls.Add(nowPlaying);
         panel.Controls.Add(status);
@@ -384,6 +503,14 @@ public sealed class MainForm : Form
             }
         };
 
+        _retryButton.Click += (_, _) =>
+        {
+            if (_currentChannel is not null)
+            {
+                PlayChannel(_currentChannel);
+            }
+        };
+
         _fullScreenButton.Click += (_, _) => ToggleFullScreen();
 
         KeyDown += (_, e) =>
@@ -417,7 +544,7 @@ public sealed class MainForm : Form
         _mediaPlayer.EncounteredError += (_, _) => SafeUi(() =>
         {
             _playPauseButton.Text = "▶";
-            _statusLabel.Text = "Το stream δεν είναι διαθέσιμο αυτή τη στιγμή.";
+            _statusLabel.Text = "Το κανάλι δεν είναι διαθέσιμο. Πάτησε ↻ για νέα προσπάθεια.";
         });
     }
 
@@ -425,7 +552,7 @@ public sealed class MainForm : Form
     {
         _refreshButton.Enabled = false;
         _refreshButton.Text = "↻  Φόρτωση...";
-        _statusLabel.Text = "Ενημέρωση λίστας καναλιών...";
+        _statusLabel.Text = "Ενημέρωση λίστας τηλεοπτικών καναλιών...";
 
         try
         {
@@ -436,7 +563,7 @@ public sealed class MainForm : Form
 
             var source = result.FromWeb ? "online" : "από το τελευταίο αποθηκευμένο αντίγραφο";
             var updated = result.UpdatedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—";
-            _statusLabel.Text = $"{_allChannels.Count} κανάλια • λίστα {source} • ενημέρωση {updated}";
+            _statusLabel.Text = $"{_allChannels.Count} τηλεοπτικά κανάλια • λίστα {source} • ενημέρωση {updated}";
 
             if (_currentChannel is null && !string.IsNullOrWhiteSpace(_settings.LastChannelKey))
             {
@@ -453,7 +580,7 @@ public sealed class MainForm : Form
         {
             _statusLabel.Text = "Δεν ήταν δυνατή η φόρτωση της λίστας καναλιών.";
             MessageBox.Show(
-                $"Δεν ήταν δυνατή η φόρτωση των καναλιών.\n\n{ex.Message}",
+                $"Δεν ήταν δυνατή η φόρτωση των τηλεοπτικών καναλιών.\n\n{ex.Message}",
                 "dwrean Ελληνική Τηλεόραση",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -484,8 +611,6 @@ public sealed class MainForm : Form
 
     private void RefreshChannelCards()
     {
-        if (_channelFlow is null) return;
-
         var search = _searchBox.Text.Trim();
         var category = _categoryCombo.SelectedItem?.ToString() ?? "Όλα τα κανάλια";
 
@@ -573,8 +698,6 @@ public sealed class MainForm : Form
         };
 
         var metaText = channel.GeoBlocked ? $"{channel.Category} • Geo" : channel.Category;
-        if (channel.IsYouTube) metaText += " • YouTube";
-
         var meta = new Label
         {
             Text = metaText,
@@ -639,22 +762,6 @@ public sealed class MainForm : Form
 
         _nowPlayingLabel.Text = channel.Name;
 
-        if (channel.IsYouTube)
-        {
-            _mediaPlayer.Stop();
-            _statusLabel.Text = "Το κανάλι ανοίγει στο YouTube.";
-
-            try
-            {
-                Process.Start(new ProcessStartInfo(channel.Url) { UseShellExecute = true });
-            }
-            catch
-            {
-                _statusLabel.Text = "Δεν ήταν δυνατό το άνοιγμα του YouTube.";
-            }
-            return;
-        }
-
         try
         {
             _mediaPlayer.Stop();
@@ -665,9 +772,10 @@ public sealed class MainForm : Form
             _mediaPlayer.Play(_currentMedia);
             _statusLabel.Text = "Σύνδεση με το κανάλι...";
         }
-        catch (Exception ex)
+        catch
         {
-            _statusLabel.Text = $"Αδυναμία αναπαραγωγής: {ex.Message}";
+            _playPauseButton.Text = "▶";
+            _statusLabel.Text = "Το κανάλι δεν είναι διαθέσιμο. Πάτησε ↻ για νέα προσπάθεια.";
         }
     }
 
@@ -719,6 +827,146 @@ public sealed class MainForm : Form
             _sidebarPanel.Visible = true;
             _controlsPanel.Visible = true;
             _isFullScreen = false;
+        }
+    }
+
+    private void ShowAboutDialog()
+    {
+        using var dialog = new Form
+        {
+            Text = "Σχετικά με το dwrean Ελληνική Τηλεόραση",
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false,
+            ClientSize = new Size(510, 385),
+            BackColor = _background,
+            ForeColor = _text,
+            Font = new Font("Segoe UI", 9F)
+        };
+
+        if (Icon is not null)
+        {
+            dialog.Icon = Icon;
+        }
+
+        var logo = new PictureBox
+        {
+            Width = 58,
+            Height = 58,
+            Location = new Point(24, 22),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            Image = Icon?.ToBitmap()
+        };
+
+        var title = new Label
+        {
+            Text = "dwrean Ελληνική Τηλεόραση",
+            ForeColor = _text,
+            Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold),
+            AutoSize = true,
+            Location = new Point(98, 23)
+        };
+
+        var version = new Label
+        {
+            Text = $"Έκδοση {AppVersion} • Portable για Windows 64-bit",
+            ForeColor = _muted,
+            AutoSize = true,
+            Location = new Point(100, 57)
+        };
+
+        var creator = new Label
+        {
+            Text = "Δημιουργία: Κυριάκος Οικονομίδης",
+            ForeColor = _text,
+            Font = new Font("Segoe UI Semibold", 9.5F),
+            AutoSize = true,
+            Location = new Point(26, 112)
+        };
+
+        var siteCaption = new Label
+        {
+            Text = "Ιστότοπος:",
+            ForeColor = _muted,
+            AutoSize = true,
+            Location = new Point(26, 147)
+        };
+
+        var site = CreateDialogLink("dwrean.net", 99, 147, DwreanUrl);
+
+        var sourceCaption = new Label
+        {
+            Text = "Πηγή λίστας:",
+            ForeColor = _muted,
+            AutoSize = true,
+            Location = new Point(26, 180)
+        };
+
+        var source = CreateDialogLink("Free-TV / IPTV – Greece", 117, 180, SourcePageUrl);
+
+        var info = new Label
+        {
+            Text = "Η εφαρμογή εμφανίζει δωρεάν διαθέσιμα ελληνικά τηλεοπτικά streams από δημόσια online λίστα. Δεν φιλοξενεί ούτε αναμεταδίδει η ίδια τηλεοπτικό περιεχόμενο. Τα κανάλια YouTube και η ενότητα ραδιοφώνου δεν περιλαμβάνονται.",
+            ForeColor = _muted,
+            AutoSize = false,
+            Location = new Point(26, 222),
+            Size = new Size(458, 82)
+        };
+
+        var closeButton = new Button
+        {
+            Text = "Κλείσιμο",
+            Width = 105,
+            Height = 34,
+            Location = new Point(379, 327),
+            FlatStyle = FlatStyle.Flat,
+            FlatAppearance = { BorderSize = 0 },
+            BackColor = _accent,
+            ForeColor = Color.White,
+            Cursor = Cursors.Hand
+        };
+        closeButton.Click += (_, _) => dialog.Close();
+
+        dialog.Controls.Add(logo);
+        dialog.Controls.Add(title);
+        dialog.Controls.Add(version);
+        dialog.Controls.Add(creator);
+        dialog.Controls.Add(siteCaption);
+        dialog.Controls.Add(site);
+        dialog.Controls.Add(sourceCaption);
+        dialog.Controls.Add(source);
+        dialog.Controls.Add(info);
+        dialog.Controls.Add(closeButton);
+        dialog.ShowDialog(this);
+    }
+
+    private LinkLabel CreateDialogLink(string text, int x, int y, string url)
+    {
+        var link = new LinkLabel
+        {
+            Text = text,
+            LinkColor = Color.FromArgb(255, 103, 103),
+            ActiveLinkColor = Color.White,
+            VisitedLinkColor = Color.FromArgb(255, 103, 103),
+            AutoSize = true,
+            Cursor = Cursors.Hand,
+            Location = new Point(x, y)
+        };
+        link.LinkClicked += (_, _) => OpenUrl(url);
+        return link;
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            // External links are optional and must never interrupt TV playback.
         }
     }
 
