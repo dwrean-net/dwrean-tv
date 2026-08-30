@@ -1,0 +1,193 @@
+using System.Net;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using DwreanTv.Models;
+
+namespace DwreanTv.Services;
+
+public sealed class ChannelService
+{
+    public const string SourceUrl = "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/greece.md";
+
+    private static readonly Regex HeadingRegex = new(
+        @"<h2>(?<title>.*?)</h2>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex RowRegex = new(
+        @"^\|\s*\d+\s*\|\s*(?<name>.*?)\s*\|\s*\[>\]\((?<url>.*?)\)\s*\|\s*(?<logo>.*?)\s*\|\s*(?<epg>.*?)\s*\|",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex LogoRegex = new(
+        "src=\\\"(?<url>[^\\\"]+)\\\"",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private readonly HttpClient _httpClient;
+    private readonly string _cachePath;
+
+    public ChannelService()
+    {
+        _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.1 (+https://www.dwrean.net/)");
+
+        var dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
+        Directory.CreateDirectory(dataDirectory);
+        _cachePath = Path.Combine(dataDirectory, "channels-cache.json");
+    }
+
+    public async Task<ChannelLoadResult> LoadAsync(bool forceRefresh = false)
+    {
+        if (!forceRefresh)
+        {
+            try
+            {
+                return await LoadFromWebAsync();
+            }
+            catch
+            {
+                var cached = await LoadCacheAsync();
+                if (cached.Count > 0)
+                {
+                    return new ChannelLoadResult(cached, false, GetCacheTimestamp());
+                }
+                throw;
+            }
+        }
+
+        return await LoadFromWebAsync();
+    }
+
+    private async Task<ChannelLoadResult> LoadFromWebAsync()
+    {
+        using var response = await _httpClient.GetAsync(SourceUrl, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        var markdown = await response.Content.ReadAsStringAsync();
+        var channels = Parse(markdown);
+
+        if (channels.Count == 0)
+        {
+            throw new InvalidOperationException("Η online λίστα δεν περιέχει ενεργά κανάλια.");
+        }
+
+        await SaveCacheAsync(channels);
+        return new ChannelLoadResult(channels, true, DateTimeOffset.Now);
+    }
+
+    public List<Channel> Parse(string markdown)
+    {
+        var channels = new List<Channel>();
+        var currentCategory = "Άλλα κανάλια";
+
+        foreach (var rawLine in markdown.Split('\n'))
+        {
+            var line = rawLine.Trim();
+
+            var headingMatch = HeadingRegex.Match(line);
+            if (headingMatch.Success)
+            {
+                currentCategory = TranslateCategory(WebUtility.HtmlDecode(headingMatch.Groups["title"].Value.Trim()));
+                continue;
+            }
+
+            var rowMatch = RowRegex.Match(line);
+            if (!rowMatch.Success)
+            {
+                continue;
+            }
+
+            var rawName = WebUtility.HtmlDecode(rowMatch.Groups["name"].Value.Trim());
+            var url = WebUtility.HtmlDecode(rowMatch.Groups["url"].Value.Trim());
+            var logoCell = rowMatch.Groups["logo"].Value;
+            var epgId = WebUtility.HtmlDecode(rowMatch.Groups["epg"].Value.Trim());
+            var logoMatch = LogoRegex.Match(logoCell);
+            var logoUrl = logoMatch.Success ? WebUtility.HtmlDecode(logoMatch.Groups["url"].Value.Trim()) : string.Empty;
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out _))
+            {
+                continue;
+            }
+
+            channels.Add(new Channel
+            {
+                Name = CleanName(rawName),
+                Url = url,
+                LogoUrl = logoUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? logoUrl : string.Empty,
+                EpgId = epgId,
+                Category = currentCategory,
+                GeoBlocked = rawName.Contains('Ⓖ'),
+                IsYouTube = rawName.Contains('Ⓨ') || url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
+            });
+        }
+
+        return channels
+            .GroupBy(c => string.IsNullOrWhiteSpace(c.EpgId) ? $"{c.Name}|{c.Url}" : c.EpgId, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+    }
+
+    private async Task SaveCacheAsync(List<Channel> channels)
+    {
+        var json = JsonSerializer.Serialize(channels, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(_cachePath, json);
+    }
+
+    private async Task<List<Channel>> LoadCacheAsync()
+    {
+        if (!File.Exists(_cachePath))
+        {
+            return new List<Channel>();
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(_cachePath);
+            return JsonSerializer.Deserialize<List<Channel>>(json) ?? new List<Channel>();
+        }
+        catch
+        {
+            return new List<Channel>();
+        }
+    }
+
+    private DateTimeOffset? GetCacheTimestamp()
+    {
+        if (!File.Exists(_cachePath))
+        {
+            return null;
+        }
+
+        return File.GetLastWriteTime(_cachePath);
+    }
+
+    private static string CleanName(string value)
+    {
+        return value
+            .Replace("Ⓖ", string.Empty)
+            .Replace("Ⓨ", string.Empty)
+            .Replace("Ⓢ", string.Empty)
+            .Trim();
+    }
+
+    private static string TranslateCategory(string category)
+    {
+        if (category.Contains("Public", StringComparison.OrdinalIgnoreCase)) return "Δημόσια";
+        if (category.Contains("Private National", StringComparison.OrdinalIgnoreCase)) return "Πανελλαδικά";
+        if (category.Contains("Athens", StringComparison.OrdinalIgnoreCase)) return "Αθήνα / Αττική";
+        if (category.Contains("Thessaloniki", StringComparison.OrdinalIgnoreCase)) return "Θεσσαλονίκη / Κ. Μακεδονία";
+        if (category.Contains("Peloponnese", StringComparison.OrdinalIgnoreCase)) return "Πελοπόννησος";
+        if (category.Contains("Eastern Sterea", StringComparison.OrdinalIgnoreCase)) return "Στερεά / Εύβοια";
+        if (category.Contains("Thessaly", StringComparison.OrdinalIgnoreCase)) return "Θεσσαλία";
+        if (category.Contains("Epirus", StringComparison.OrdinalIgnoreCase)) return "Ήπειρος";
+        if (category.Contains("Crete", StringComparison.OrdinalIgnoreCase)) return "Κρήτη";
+        if (category.Contains("Aegean", StringComparison.OrdinalIgnoreCase)) return "Αιγαίο";
+        if (category.Contains("Ionian", StringComparison.OrdinalIgnoreCase)) return "Ιόνιο";
+        if (category.Contains("Macedonia", StringComparison.OrdinalIgnoreCase)) return "Μακεδονία";
+        if (category.Contains("Thrace", StringComparison.OrdinalIgnoreCase)) return "Θράκη";
+        if (category.Contains("Invalid", StringComparison.OrdinalIgnoreCase)) return "Μη διαθέσιμα";
+        return category;
+    }
+}
+
+public sealed record ChannelLoadResult(IReadOnlyList<Channel> Channels, bool FromWeb, DateTimeOffset? UpdatedAt);
