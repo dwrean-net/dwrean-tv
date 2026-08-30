@@ -48,7 +48,7 @@ internal static class Program
             .FirstOrDefault(label => label.Text == "Ελληνική Τηλεόραση");
         if (title is not null)
         {
-            title.Location = new Point(174, 15);
+            title.Location = new Point((dwrean?.Right ?? 88) + 10, 15);
         }
 
         var subtitle = header.Controls
