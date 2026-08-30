@@ -12,6 +12,7 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
     <PublishReadyToRun>false</PublishReadyToRun>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Version>0.1.0</Version>
     <Authors>dwrean.net</Authors>
     <Product>dwrean Ελληνική Τηλεόραση</Product>
