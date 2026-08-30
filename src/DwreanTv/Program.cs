@@ -1,3 +1,4 @@
+using System.Drawing.Drawing2D;
 using LibVLCSharp.Shared;
 
 namespace DwreanTv;
@@ -11,11 +12,17 @@ internal static class Program
         ApplicationConfiguration.Initialize();
 
         var mainForm = new MainForm();
-        FixHeaderSpacing(mainForm);
+        ApplyFinalPolish(mainForm);
         Application.Run(mainForm);
     }
 
-    private static void FixHeaderSpacing(Form form)
+    private static void ApplyFinalPolish(Form form)
+    {
+        PolishHeader(form);
+        PolishChannelList(form);
+    }
+
+    private static void PolishHeader(Form form)
     {
         var header = form.Controls
             .OfType<Panel>()
@@ -26,13 +33,28 @@ internal static class Program
             return;
         }
 
-        header.Height = 88;
+        header.Height = 90;
 
         var logo = header.Controls.OfType<PictureBox>().FirstOrDefault();
         if (logo is not null)
         {
-            logo.Location = new Point(28, 18);
-            logo.Size = new Size(48, 48);
+            header.Controls.Remove(logo);
+
+            var logoFrame = new Panel
+            {
+                Location = new Point(24, 17),
+                Size = new Size(56, 56),
+                BackColor = Color.FromArgb(239, 240, 243),
+                Padding = new Padding(5)
+            };
+            SetRoundedRegion(logoFrame, 10);
+
+            logo.Dock = DockStyle.Fill;
+            logo.BackColor = Color.Transparent;
+            logo.SizeMode = PictureBoxSizeMode.Zoom;
+            logoFrame.Controls.Add(logo);
+            header.Controls.Add(logoFrame);
+            logoFrame.BringToFront();
         }
 
         var dwrean = header.Controls
@@ -40,7 +62,7 @@ internal static class Program
             .FirstOrDefault(label => label.Text == "dwrean");
         if (dwrean is not null)
         {
-            dwrean.Location = new Point(88, 15);
+            dwrean.Location = new Point(94, 16);
         }
 
         var title = header.Controls
@@ -48,7 +70,10 @@ internal static class Program
             .FirstOrDefault(label => label.Text == "Ελληνική Τηλεόραση");
         if (title is not null)
         {
-            title.Location = new Point((dwrean?.Right ?? 88) + 10, 15);
+            var dwreanWidth = dwrean is null
+                ? 82
+                : TextRenderer.MeasureText(dwrean.Text, dwrean.Font).Width;
+            title.Location = new Point((dwrean?.Left ?? 94) + dwreanWidth + 12, 16);
         }
 
         var subtitle = header.Controls
@@ -56,7 +81,108 @@ internal static class Program
             .FirstOrDefault(label => label.Text.StartsWith("Δωρεάν ελληνικά", StringComparison.Ordinal));
         if (subtitle is not null)
         {
-            subtitle.Location = new Point(90, 50);
+            subtitle.Location = new Point(96, 52);
         }
+    }
+
+    private static void PolishChannelList(Form form)
+    {
+        var sidebar = form.Controls
+            .OfType<Panel>()
+            .SelectMany(panel => panel.Controls.OfType<Panel>())
+            .FirstOrDefault(panel => panel.Dock == DockStyle.Left);
+
+        var flow = sidebar?.Controls.OfType<FlowLayoutPanel>().FirstOrDefault()
+                   ?? FindControl<FlowLayoutPanel>(form);
+
+        if (flow is null)
+        {
+            return;
+        }
+
+        flow.HorizontalScroll.Enabled = false;
+        flow.HorizontalScroll.Visible = false;
+        flow.AutoScrollMargin = Size.Empty;
+
+        void ResizeAll()
+        {
+            foreach (Control child in flow.Controls)
+            {
+                ResizeFlowChild(flow, child);
+            }
+
+            flow.HorizontalScroll.Enabled = false;
+            flow.HorizontalScroll.Visible = false;
+        }
+
+        flow.ControlAdded += (_, e) =>
+        {
+            ResizeFlowChild(flow, e.Control);
+            flow.HorizontalScroll.Enabled = false;
+            flow.HorizontalScroll.Visible = false;
+        };
+        flow.Resize += (_, _) => ResizeAll();
+        ResizeAll();
+    }
+
+    private static void ResizeFlowChild(FlowLayoutPanel flow, Control child)
+    {
+        var availableWidth = Math.Max(
+            260,
+            flow.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 10);
+
+        child.Width = availableWidth;
+
+        if (child is not Panel card || card.Height < 50)
+        {
+            return;
+        }
+
+        var star = card.Controls
+            .OfType<Button>()
+            .FirstOrDefault(button => button.Text is "★" or "☆");
+
+        if (star is null)
+        {
+            return;
+        }
+
+        star.Left = card.ClientSize.Width - star.Width - 8;
+
+        foreach (var label in card.Controls.OfType<Label>().Where(label => label.Left >= 60))
+        {
+            label.Width = Math.Max(90, star.Left - label.Left - 6);
+        }
+    }
+
+    private static T? FindControl<T>(Control root) where T : Control
+    {
+        foreach (Control child in root.Controls)
+        {
+            if (child is T match)
+            {
+                return match;
+            }
+
+            var nested = FindControl<T>(child);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static void SetRoundedRegion(Control control, int radius)
+    {
+        var diameter = radius * 2;
+        using var path = new GraphicsPath();
+        path.AddArc(0, 0, diameter, diameter, 180, 90);
+        path.AddArc(control.Width - diameter, 0, diameter, diameter, 270, 90);
+        path.AddArc(control.Width - diameter, control.Height - diameter, diameter, diameter, 0, 90);
+        path.AddArc(0, control.Height - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        control.Region = new Region(path);
     }
 }
