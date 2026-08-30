@@ -1,0 +1,34 @@
+name: Κανάλι που δεν παίζει
+description: Ανέφερε εύκολα ένα τηλεοπτικό κανάλι που δεν λειτουργεί.
+title: "[Κανάλι] "
+labels: []
+body:
+  - type: input
+    id: channel
+    attributes:
+      label: Όνομα καναλιού
+      placeholder: π.χ. ERT 1
+    validations:
+      required: true
+  - type: dropdown
+    id: problem
+    attributes:
+      label: Τι συμβαίνει;
+      options:
+        - Δεν ξεκινά καθόλου
+        - Κολλάει ή διακόπτεται
+        - Δεν έχει εικόνα
+        - Δεν έχει ήχο
+        - Άλλο
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Πρόσθετες πληροφορίες
+      description: Γράψε οτιδήποτε μπορεί να βοηθήσει.
+  - type: input
+    id: version
+    attributes:
+      label: Έκδοση εφαρμογής
+      placeholder: π.χ. v0.2.0
