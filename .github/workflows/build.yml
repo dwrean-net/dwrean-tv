@@ -1,4 +1,4 @@
-name: Build verbatim Free-TV test
+name: Build mpv Free-TV test
 
 on:
   push:
@@ -35,6 +35,21 @@ jobs:
           if (-not (Test-Path "publish\data\greece.md")) { throw "greece.md was not downloaded" }
           if ((Get-Item "publish\data\greece.md").Length -lt 1000) { throw "greece.md looks invalid" }
 
+      - name: Bundle mpv playback engine
+        shell: pwsh
+        run: |
+          $mpvUrl = "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-08-31-02a595ddc1/mpv-x86_64-20260831-git-02a595ddc1.7z"
+          Invoke-WebRequest -Uri $mpvUrl -OutFile "mpv.7z" -UseBasicParsing
+          if ((Get-Item "mpv.7z").Length -lt 1000000) { throw "mpv archive looks invalid" }
+          New-Item -ItemType Directory -Force -Path "mpv-extract" | Out-Null
+          7z x "mpv.7z" -o"mpv-extract" -y | Out-Null
+          $mpv = Get-ChildItem "mpv-extract" -Recurse -Filter "mpv.exe" | Select-Object -First 1
+          if (-not $mpv) { throw "mpv.exe not found after extraction" }
+          New-Item -ItemType Directory -Force -Path "publish\player" | Out-Null
+          Copy-Item "$($mpv.Directory.FullName)\*" "publish\player\" -Recurse -Force
+          if (-not (Test-Path "publish\player\mpv.exe")) { throw "mpv.exe was not bundled" }
+          if ((Get-Item "publish\player\mpv.exe").Length -lt 1000000) { throw "mpv.exe looks invalid" }
+
       - name: Remove unused VLC architectures
         shell: pwsh
         run: |
@@ -44,7 +59,7 @@ jobs:
       - name: Upload test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-verbatim-free-tv-test-win-x64
+          name: dwrean-tv-mpv-free-tv-test-win-x64
           path: publish
           if-no-files-found: error
           compression-level: 9
