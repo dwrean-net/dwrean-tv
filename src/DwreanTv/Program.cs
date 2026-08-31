@@ -11,7 +11,7 @@ namespace DwreanTv;
 
 internal static class Program
 {
-    private const string CurrentVersion = "0.2.5-mpv-test";
+    private const string CurrentVersion = "0.2.6-mpv-test";
 
     [STAThread]
     private static void Main()
@@ -47,7 +47,6 @@ internal static class Program
         private readonly Button? _retryButton;
         private readonly TrackBar? _volumeTrackBar;
         private readonly MediaPlayer? _legacyPlayer;
-        private readonly Panel _legacySink;
         private readonly System.Windows.Forms.Timer _pollTimer;
         private readonly SemaphoreSlim _switchGate = new(1, 1);
 
@@ -78,35 +77,19 @@ internal static class Program
             _volumeTrackBar = typeof(MainForm).GetField("_volumeTrackBar", flags)?.GetValue(form) as TrackBar;
             _legacyPlayer = typeof(MainForm).GetField("_mediaPlayer", flags)?.GetValue(form) as MediaPlayer;
 
-            // Detach LibVLC from the visible VideoView. mpv owns this surface.
-            try
-            {
-                _videoHost.GetType().GetProperty("MediaPlayer")?.SetValue(_videoHost, null);
-            }
-            catch
-            {
-            }
-
-            // Important: MainForm still calls the old LibVLC PlayChannel method.
-            // Give that player a hidden 1x1 native target so VLC can never create its
-            // own "VLC (Direct3D11 output)" top-level window. We then stop it as soon
-            // as the selected channel is observed by the coordinator.
-            _legacySink = new Panel
-            {
-                Size = new Size(1, 1),
-                Location = new Point(-100, -100),
-                Visible = false
-            };
-            _form.Controls.Add(_legacySink);
-            _legacySink.CreateControl();
-
+            // Keep LibVLC attached to the embedded VideoView so Windows/VLC never has
+            // a reason to create a separate "VLC (Direct3D11 output)" top-level window.
+            // The legacy player is stopped immediately whenever MainForm tries to open it.
             if (_legacyPlayer is not null)
             {
                 try
                 {
-                    _legacyPlayer.Hwnd = _legacySink.Handle;
+                    _legacyPlayer.Hwnd = _videoHost.Handle;
                     _legacyPlayer.Mute = true;
                     _legacyPlayer.Volume = 0;
+
+                    _legacyPlayer.Opening += (_, _) => SafeUi(SuppressLegacyPlayback);
+                    _legacyPlayer.Playing += (_, _) => SafeUi(SuppressLegacyPlayback);
                 }
                 catch
                 {
@@ -152,7 +135,9 @@ internal static class Program
             // never kill/relaunch the player, which makes switching much lighter.
             EnsureMpvStarted();
 
-            _pollTimer = new System.Windows.Forms.Timer { Interval = 70 };
+            // A short poll interval means the legacy MainForm playback call is cancelled
+            // almost immediately, while the mpv process itself stays persistent.
+            _pollTimer = new System.Windows.Forms.Timer { Interval = 25 };
             _pollTimer.Tick += (_, _) => PollCurrentChannel();
             _pollTimer.Start();
         }
@@ -221,6 +206,7 @@ internal static class Program
                 await SendCommandWithRetryAsync(new object[] { "set_property", "pause", false }, 3, 200);
                 await SendCommandWithRetryAsync(new object[] { "set_property", "volume", _volume }, 3, 200);
                 await SendCommandWithRetryAsync(new object[] { "set_property", "mute", _muted }, 3, 200);
+                SuppressLegacyPlayback();
 
                 SafeUi(() =>
                 {
@@ -408,11 +394,13 @@ internal static class Program
                     return;
                 }
 
+                // Keep the old LibVLC player embedded and immediately stop it. This
+                // prevents both duplicate decoding and any Direct3D11 output window.
+                _legacyPlayer.Hwnd = _videoHost.Handle;
                 _legacyPlayer.Mute = true;
                 _legacyPlayer.Volume = 0;
-                _legacyPlayer.Hwnd = _legacySink.Handle;
 
-                if (_legacyPlayer.IsPlaying)
+                if (_legacyPlayer.IsPlaying || _legacyPlayer.Media is not null)
                 {
                     _legacyPlayer.Stop();
                 }
@@ -495,7 +483,6 @@ internal static class Program
             _pollTimer.Dispose();
             StopProcess();
             _switchGate.Dispose();
-            _legacySink.Dispose();
         }
     }
 
@@ -513,7 +500,8 @@ internal static class Program
             .Replace("0.2.1", CurrentVersion, StringComparison.Ordinal)
             .Replace("0.2.2", CurrentVersion, StringComparison.Ordinal)
             .Replace("0.2.3-test", CurrentVersion, StringComparison.Ordinal)
-            .Replace("0.2.4-mpv-test", CurrentVersion, StringComparison.Ordinal);
+            .Replace("0.2.4-mpv-test", CurrentVersion, StringComparison.Ordinal)
+            .Replace("0.2.5-mpv-test", CurrentVersion, StringComparison.Ordinal);
 
         foreach (Control child in root.Controls)
         {
