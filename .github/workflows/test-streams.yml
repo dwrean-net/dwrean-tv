@@ -16,30 +16,35 @@ jobs:
           $tests = @(
             @{ Name='STAR'; Url='https://livestar.siliconweb.com/starvod/star4/star4.m3u8'; Referer='https://www.star.gr/tv/live-stream' },
             @{ Name='ALPHA'; Url='https://alphatvlive2.siliconweb.com/alphatvlive/live_abr/playlist.m3u8'; Referer='https://www.alphatv.gr/live' },
-            @{ Name='SKAI-https'; Url='https://skai-live.siliconweb.com/media/cambria4/index.m3u8'; Referer='https://www.skai.gr/tv/live' },
-            @{ Name='SKAI-http'; Url='http://skai-live.siliconweb.com/media/cambria4/index.m3u8'; Referer='https://www.skai.gr/tv/live' },
-            @{ Name='OPEN-old'; Url='https://liveopen.siliconweb.com/openTvLive/liveopen/playlist.m3u8'; Referer='https://www.tvopen.gr/live' },
-            @{ Name='ERTNews'; Url='https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTNews/default/index.m3u8'; Referer='https://www.ert.gr/tv-live/' },
-            @{ Name='ERTSports1'; Url='https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTSports1/default/index.m3u8'; Referer='https://www.ert.gr/tv-live/' }
+            @{ Name='SKAI'; Url='https://skai-live.siliconweb.com/media/cambria4/index.m3u8'; Referer='https://www.skai.gr/tv/live' },
+            @{ Name='OPEN'; Url='https://liveopen.siliconweb.com/openTvLive/liveopen/playlist.m3u8'; Referer='https://www.tvopen.gr/live' },
+            @{ Name='ERTNews'; Url='https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTNews/default/index.m3u8'; Referer='https://www.ert.gr/tv-live/' }
           )
 
+          $agents = [ordered]@{
+            'vlc' = 'VLC/3.0.23 LibVLC/3.0.23'
+            'browser' = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36'
+          }
+
           foreach ($t in $tests) {
-            foreach ($mode in @('plain','referer')) {
-              $file = Join-Path $env:RUNNER_TEMP (($t.Name + '-' + $mode) + '.txt')
-              Write-Host "=== $($t.Name) / $mode ==="
-              $args = @('-L','--fail','--silent','--show-error','--max-time','15','--connect-timeout','8','-A','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36')
-              if ($mode -eq 'referer') { $args += @('-e', $t.Referer) }
-              $args += @($t.Url, '-o', $file)
-              & curl.exe @args
-              if ($LASTEXITCODE -ne 0) {
-                Write-Host "RESULT: FAIL (curl exit $LASTEXITCODE)"
-                continue
+            foreach ($agent in $agents.GetEnumerator()) {
+              foreach ($refMode in @('noref','referer')) {
+                $file = Join-Path $env:RUNNER_TEMP (($t.Name + '-' + $agent.Key + '-' + $refMode) + '.txt')
+                Write-Host "=== $($t.Name) / $($agent.Key) / $refMode ==="
+                $args = @('-L','--fail','--silent','--show-error','--max-time','15','--connect-timeout','8','-A',$agent.Value)
+                if ($refMode -eq 'referer') { $args += @('-e', $t.Referer) }
+                $args += @($t.Url, '-o', $file)
+                & curl.exe @args
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "RESULT: FAIL (curl exit $LASTEXITCODE)"
+                  continue
+                }
+                $text = Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
+                $size = (Get-Item $file).Length
+                if ($text -match '#EXTM3U') { Write-Host "RESULT: OK HLS ($size bytes)" }
+                elseif ($text -match '<MPD' -or $text -match 'urn:mpeg:dash:schema:mpd') { Write-Host "RESULT: OK DASH ($size bytes)" }
+                else { Write-Host "RESULT: UNKNOWN RESPONSE ($size bytes)" }
               }
-              $text = Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
-              $size = (Get-Item $file).Length
-              if ($text -match '#EXTM3U') { Write-Host "RESULT: OK HLS ($size bytes)" }
-              elseif ($text -match '<MPD' -or $text -match 'urn:mpeg:dash:schema:mpd') { Write-Host "RESULT: OK DASH ($size bytes)" }
-              else { Write-Host "RESULT: UNKNOWN RESPONSE ($size bytes)"; Write-Host ($text.Substring(0,[Math]::Min(180,$text.Length))) }
             }
           }
           exit 0
