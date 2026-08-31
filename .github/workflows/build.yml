@@ -1,12 +1,12 @@
-name: Build and release Windows app
+name: Build WebView2 test
 
 on:
   push:
-    branches: [ main ]
+    branches: [ webview-player-test ]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -24,7 +24,7 @@ jobs:
       - name: Restore
         run: dotnet restore src/DwreanTv/DwreanTv.csproj
 
-      - name: Publish portable build
+      - name: Publish test build
         run: dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -o publish
 
       - name: Remove unused VLC architectures
@@ -33,28 +33,10 @@ jobs:
           Remove-Item -Recurse -Force publish\libvlc\win-x86 -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force publish\libvlc\win-arm64 -ErrorAction SilentlyContinue
 
-      - name: Create portable ZIP
-        shell: pwsh
-        run: |
-          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-v0.2.2-portable-win-x64.zip -Force
-
-      - name: Upload build artifact
+      - name: Upload test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-v0.2.2-portable-win-x64
+          name: dwrean-tv-webview-test-win-x64
           path: publish
           if-no-files-found: error
           compression-level: 9
-
-      - name: Publish GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view v0.2.2 *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload v0.2.2 dwrean-tv-v0.2.2-portable-win-x64.zip --clobber
-          }
-          else {
-            gh release create v0.2.2 dwrean-tv-v0.2.2-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.2.2" --notes "Δοκιμαστική έκδοση αξιοπιστίας με αυτόματο multi-stream fallback για ΕΡΤ1, ΕΡΤ2, ΕΡΤ3, ERT News, ANT1, Star, Alpha, ΣΚΑΪ, OPEN και MAK TV. Αν μία πηγή δεν ξεκινήσει, η εφαρμογή δοκιμάζει αυτόματα εναλλακτικό stream." --latest
-          }
