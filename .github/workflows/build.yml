@@ -1,4 +1,4 @@
-name: Build WebView2 test
+name: Build verbatim Free-TV test
 
 on:
   push:
@@ -27,6 +27,14 @@ jobs:
       - name: Publish test build
         run: dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -o publish
 
+      - name: Bundle exact Free-TV Greece list
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path publish\data | Out-Null
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/greece.md" -OutFile "publish\data\greece.md" -UseBasicParsing
+          if (-not (Test-Path "publish\data\greece.md")) { throw "greece.md was not downloaded" }
+          if ((Get-Item "publish\data\greece.md").Length -lt 1000) { throw "greece.md looks invalid" }
+
       - name: Remove unused VLC architectures
         shell: pwsh
         run: |
@@ -36,7 +44,7 @@ jobs:
       - name: Upload test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-webview-test-win-x64
+          name: dwrean-tv-verbatim-free-tv-test-win-x64
           path: publish
           if-no-files-found: error
           compression-level: 9
