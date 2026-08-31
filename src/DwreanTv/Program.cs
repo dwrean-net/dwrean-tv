@@ -6,6 +6,7 @@ namespace DwreanTv;
 
 internal static class Program
 {
+    private const string CurrentVersion = "0.2.1";
     private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 
     [STAThread]
@@ -17,6 +18,15 @@ internal static class Program
         var mainForm = new MainForm();
         InstallPlaybackCompatibility(mainForm);
         ApplyFinalPolish(mainForm);
+
+        Application.Idle += (_, _) =>
+        {
+            foreach (Form openForm in Application.OpenForms)
+            {
+                RefreshDisplayedVersion(openForm);
+            }
+        };
+
         Application.Run(mainForm);
     }
 
@@ -33,9 +43,6 @@ internal static class Program
             var media = e.Media;
             var mrl = media.Mrl ?? string.Empty;
 
-            // Several Greek CDNs reject the default LibVLC identity even when
-            // the stream itself is public. A normal browser identity greatly
-            // improves HLS/DASH compatibility.
             media.AddOption($":http-user-agent={BrowserUserAgent}");
             media.AddOption(":http-reconnect=true");
             media.AddOption(":network-caching=2500");
@@ -43,7 +50,6 @@ internal static class Program
 
             if (mrl.Contains("antennaplus.gr", StringComparison.OrdinalIgnoreCase))
             {
-                // ANT1 and MAK TV require the referrer used by Antenna's web player.
                 media.AddOption(":http-referrer=http://watch.antennaplus.gr");
             }
             else if (mrl.Contains("alphatvlive", StringComparison.OrdinalIgnoreCase))
@@ -73,6 +79,20 @@ internal static class Program
     {
         PolishHeader(form);
         PolishChannelList(form);
+        RefreshDisplayedVersion(form);
+    }
+
+    private static void RefreshDisplayedVersion(Control root)
+    {
+        if (root.Text.Contains("0.2.0", StringComparison.Ordinal))
+        {
+            root.Text = root.Text.Replace("0.2.0", CurrentVersion, StringComparison.Ordinal);
+        }
+
+        foreach (Control child in root.Controls)
+        {
+            RefreshDisplayedVersion(child);
+        }
     }
 
     private static void PolishHeader(Form form)
