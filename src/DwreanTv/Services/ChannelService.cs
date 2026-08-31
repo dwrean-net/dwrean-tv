@@ -1,14 +1,12 @@
 using System.Net;
-using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using DwreanTv.Models;
 
 namespace DwreanTv.Services;
 
 public sealed class ChannelService
 {
-    // Canonical source requested for the app. The GitHub page provided by the project
-    // corresponds to this raw file; channel playback URLs are copied verbatim from it.
     public const string SourceUrl = "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/greece.md";
 
     private static readonly Regex HeadingRegex = new(
@@ -25,36 +23,79 @@ public sealed class ChannelService
 
     private readonly HttpClient _httpClient;
     private readonly string _cachePath;
+    private readonly string _bundledListPath;
 
     public ChannelService()
     {
-        _httpClient = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(15)
-        };
-
-        // This header is used only to download the markdown list from GitHub.
-        // It is never applied to channel playback.
+        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.2.3-test");
 
         var dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
         Directory.CreateDirectory(dataDirectory);
-
-        // New cache name deliberately prevents older builds from restoring URLs
-        // that had previously been modified by compatibility experiments.
-        _cachePath = Path.Combine(dataDirectory, "channels-cache-free-tv-original-v1.json");
+        _cachePath = Path.Combine(dataDirectory, "channels-cache-verbatim.json");
+        _bundledListPath = Path.Combine(dataDirectory, "greece.md");
     }
 
     public async Task<ChannelLoadResult> LoadAsync(bool forceRefresh = false)
     {
+        // Normal startup: use the exact Free-TV snapshot bundled with the app.
+        // This avoids startup failures when raw.githubusercontent.com is blocked/slow.
+        if (!forceRefresh)
+        {
+            var bundled = await LoadBundledListAsync();
+            if (bundled.Count > 0)
+            {
+                return new ChannelLoadResult(
+                    bundled,
+                    false,
+                    File.GetLastWriteTime(_bundledListPath),
+                    "ενσωματωμένη λίστα Free-TV");
+            }
+        }
+
+        // Manual Refresh: download the same greece.md and keep every playback URL verbatim.
+        var online = await TryLoadFromWebAsync();
+        if (online is not null)
+        {
+            return online;
+        }
+
+        // If refresh cannot reach GitHub, keep using the bundled snapshot.
+        var fallbackBundled = await LoadBundledListAsync();
+        if (fallbackBundled.Count > 0)
+        {
+            return new ChannelLoadResult(
+                fallbackBundled,
+                false,
+                File.GetLastWriteTime(_bundledListPath),
+                "ενσωματωμένη λίστα Free-TV");
+        }
+
+        var cached = await LoadCacheAsync();
+        if (cached.Count > 0)
+        {
+            return new ChannelLoadResult(
+                cached,
+                false,
+                File.GetLastWriteTime(_cachePath),
+                "τελευταίο αποθηκευμένο αντίγραφο");
+        }
+
+        throw new InvalidOperationException("Δεν βρέθηκε η ενσωματωμένη λίστα Free-TV.");
+    }
+
+    private async Task<ChannelLoadResult?> TryLoadFromWebAsync()
+    {
         try
         {
-            var markdown = await _httpClient.GetStringAsync(SourceUrl);
+            using var response = await _httpClient.GetAsync(SourceUrl);
+            response.EnsureSuccessStatusCode();
+            var markdown = await response.Content.ReadAsStringAsync();
             var channels = Parse(markdown);
 
             if (channels.Count == 0)
             {
-                throw new InvalidOperationException("Η λίστα Free-TV δεν επέστρεψε ενεργά τηλεοπτικά κανάλια.");
+                return null;
             }
 
             await SaveCacheAsync(channels);
@@ -62,22 +103,29 @@ public sealed class ChannelService
                 channels,
                 true,
                 DateTimeOffset.Now,
-                "Free-TV / IPTV – Greece");
+                "Free-TV online");
         }
         catch
         {
-            var cached = await LoadCacheAsync();
-            if (cached.Count > 0)
-            {
-                return new ChannelLoadResult(
-                    cached,
-                    false,
-                    GetCacheTimestamp(),
-                    "τελευταίο αντίγραφο της Free-TV Greece");
-            }
+            return null;
+        }
+    }
 
-            throw new InvalidOperationException(
-                "Δεν ήταν δυνατή η λήψη της λίστας Free-TV Greece και δεν υπάρχει αποθηκευμένο αντίγραφο.");
+    private async Task<List<Channel>> LoadBundledListAsync()
+    {
+        if (!File.Exists(_bundledListPath))
+        {
+            return [];
+        }
+
+        try
+        {
+            var markdown = await File.ReadAllTextAsync(_bundledListPath);
+            return Parse(markdown);
+        }
+        catch
+        {
+            return [];
         }
     }
 
@@ -90,8 +138,8 @@ public sealed class ChannelService
         foreach (var rawLine in markdown.Split('\n'))
         {
             var line = rawLine.Trim();
-
             var headingMatch = HeadingRegex.Match(line);
+
             if (headingMatch.Success)
             {
                 var heading = WebUtility.HtmlDecode(headingMatch.Groups["title"].Value.Trim());
@@ -105,7 +153,6 @@ public sealed class ChannelService
                 continue;
             }
 
-            // Only [>] rows from the original Free-TV list are considered active.
             var rowMatch = RowRegex.Match(line);
             if (!rowMatch.Success)
             {
@@ -121,13 +168,9 @@ public sealed class ChannelService
                 ? WebUtility.HtmlDecode(logoMatch.Groups["url"].Value.Trim())
                 : string.Empty;
 
-            if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out _))
-            {
-                continue;
-            }
-
-            // Previous product decision: TV only, no YouTube-based channels.
-            if (IsYouTubeUrl(sourceUrl) || rawName.Contains('Ⓨ'))
+            if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out _) ||
+                IsYouTubeUrl(sourceUrl) ||
+                rawName.Contains('Ⓨ'))
             {
                 continue;
             }
@@ -135,8 +178,6 @@ public sealed class ChannelService
             channels.Add(new Channel
             {
                 Name = CleanName(rawName),
-                // IMPORTANT: exact URL from Free-TV. No rewriting, normalization,
-                // fallback substitution or CDN replacement is performed here.
                 Url = sourceUrl,
                 LogoUrl = logoUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                     ? logoUrl
@@ -148,21 +189,23 @@ public sealed class ChannelService
             });
         }
 
-        return Sanitize(channels);
+        // Preserve the rows and playback URLs from Free-TV as-is.
+        // Only exact duplicate rows are removed.
+        return channels
+            .GroupBy(c => $"{c.Name}\n{c.Url}", StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
     }
 
     private async Task SaveCacheAsync(List<Channel> channels)
     {
         try
         {
-            var json = JsonSerializer.Serialize(
-                Sanitize(channels),
-                new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(channels, new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(_cachePath, json);
         }
         catch
         {
-            // Cache failure must not prevent online playback.
         }
     }
 
@@ -176,28 +219,12 @@ public sealed class ChannelService
         try
         {
             var json = await File.ReadAllTextAsync(_cachePath);
-            return Sanitize(JsonSerializer.Deserialize<List<Channel>>(json) ?? []);
+            return JsonSerializer.Deserialize<List<Channel>>(json) ?? [];
         }
         catch
         {
             return [];
         }
-    }
-
-    private DateTimeOffset? GetCacheTimestamp() =>
-        File.Exists(_cachePath) ? File.GetLastWriteTime(_cachePath) : null;
-
-    private static List<Channel> Sanitize(IEnumerable<Channel> channels)
-    {
-        return channels
-            .Where(c => !c.IsYouTube)
-            .Where(c => !IsYouTubeUrl(c.Url))
-            .Where(c => !c.Category.Contains("Radio", StringComparison.OrdinalIgnoreCase))
-            .Where(c => !c.Category.Contains("Ραδιό", StringComparison.OrdinalIgnoreCase))
-            // Preserve separate rows from Free-TV even when they share the same EPG id.
-            .GroupBy(c => $"{c.Name}|{c.Url}", StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .ToList();
     }
 
     private static bool IsYouTubeUrl(string url) =>
@@ -218,13 +245,11 @@ public sealed class ChannelService
         if (category.Contains("Thessaloniki", StringComparison.OrdinalIgnoreCase)) return "Θεσσαλονίκη / Κ. Μακεδονία";
         if (category.Contains("Peloponnese", StringComparison.OrdinalIgnoreCase)) return "Πελοπόννησος";
         if (category.Contains("Eastern Sterea", StringComparison.OrdinalIgnoreCase)) return "Στερεά / Εύβοια";
-        if (category.Contains("Thessaly", StringComparison.OrdinalIgnoreCase)) return "Θεσσαλία";
-        if (category.Contains("Epirus", StringComparison.OrdinalIgnoreCase)) return "Ήπειρος";
+        if (category.Contains("Thessalia", StringComparison.OrdinalIgnoreCase)) return "Θεσσαλία";
+        if (category.Contains("Western Greece", StringComparison.OrdinalIgnoreCase)) return "Δυτική Ελλάδα";
+        if (category.Contains("Thrace", StringComparison.OrdinalIgnoreCase)) return "Θράκη / Αν. Μακεδονία";
         if (category.Contains("Crete", StringComparison.OrdinalIgnoreCase)) return "Κρήτη";
         if (category.Contains("Aegean", StringComparison.OrdinalIgnoreCase)) return "Αιγαίο";
-        if (category.Contains("Ionian", StringComparison.OrdinalIgnoreCase)) return "Ιόνιο";
-        if (category.Contains("Macedonia", StringComparison.OrdinalIgnoreCase)) return "Μακεδονία";
-        if (category.Contains("Thrace", StringComparison.OrdinalIgnoreCase)) return "Θράκη";
         return category;
     }
 }
