@@ -1,4 +1,4 @@
-name: Build dwrean.TV TEST v3 full57
+name: Build dwrean.TV TEST v4 original player + 57 channels
 
 on:
   push:
@@ -17,35 +17,28 @@ jobs:
       - name: Checkout test branch
         uses: actions/checkout@v4
 
-      - name: Patch ERT test endpoints
+      - name: Validate minimal fix only
         shell: pwsh
         run: |
-          $path = 'src/DwreanTv/Data/default-greece.md'
-          $text = Get-Content -LiteralPath $path -Raw
-          $text = $text.Replace('https://ert-live.siliconweb.com/bpk-tv/ERT1/default/index.mpd', 'https://ertflix.s.llnwi.net/ertlive/ert1/clrdef24723b/playlist.m3u8')
-          $text = $text.Replace('https://ert-live.siliconweb.com/bpk-tv/ERT2/default/index.mpd', 'https://ertflix.s.llnwi.net/ertlive/ert2/clrdef24828z/playlist.m3u8')
-          $text = $text.Replace('https://ert-live.siliconweb.com/bpk-tv/ERT3/default/index.mpd', 'https://ertflix.s.llnwi.net/ertlive/ert3/clrdef24828n/playlist.m3u8')
-          $text = $text.Replace('https://ert-live.siliconweb.com/bpk-tv/ERTNews/default/index.mpd', 'http://hbbtvapp.ert.gr/stream.php/v/vid_ertnews_mpeg.2ts')
-          $text = $text.Replace('https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTWorld/default/index.mpd', 'http://hbbtv.ert.gr/stream.php/v/vid_ertworld_mpeg.2ts')
-          $text = $text.Replace('https://diavlos-cache.cnt.grnet.gr/parltv/webtv-1b.sdp/playlist.m3u8', 'https://streamer-cache.grnet.gr/parliament/hls/webtv.m3u8')
-          Set-Content -LiteralPath $path -Value $text -Encoding utf8
-
-      - name: Patch TEST v3 playback engine
-        shell: pwsh
-        run: ./.github/scripts/patch-test-playback.ps1
-
-      - name: Validate embedded 57-channel snapshot
-        shell: pwsh
-        run: |
-          $text = Get-Content -LiteralPath 'src/DwreanTv/Data/default-greece.md' -Raw
-          $rows = [regex]::Matches($text, '(?m)^\|\s*\d+\s*\|.*?\[>\]\(https?://')
+          $snapshot = Get-Content -LiteralPath 'src/DwreanTv/Data/default-greece.md' -Raw
+          $rows = [regex]::Matches($snapshot, '(?m)^\|\s*\d+\s*\|.*?\[>\]\(https?://')
           Write-Host "Embedded channel rows: $($rows.Count)"
           if ($rows.Count -ne 57) {
             throw "Expected exactly 57 embedded channels, found $($rows.Count)."
           }
-          if (-not (Test-Path 'src/DwreanTv/Services/HlsProxyService.cs')) {
-            throw 'HlsProxyService.cs is missing.'
+
+          $mainForm = Get-Content -LiteralPath 'src/DwreanTv/MainForm.cs' -Raw
+          if (-not $mainForm.Contains('new Media(_libVlc, new Uri(channel.Url))')) {
+            throw 'Original direct channel.Url playback is not present.'
           }
+          if ($mainForm.Contains('HlsProxyService')) {
+            throw 'MainForm must not use the HLS proxy.'
+          }
+          if ($mainForm.Contains('GetPlaybackCandidates')) {
+            throw 'MainForm must not use alternate playback candidates.'
+          }
+
+          Write-Host 'OK: original player is untouched; only the complete local channel list is used for startup.'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -66,13 +59,13 @@ jobs:
 
       - name: Create TEST ZIP
         shell: pwsh
-        run: Compress-Archive -Path publish\* -DestinationPath dwrean-tv-TEST-v3-full57-win-x64.zip -Force
+        run: Compress-Archive -Path publish\* -DestinationPath dwrean-tv-TEST-v4-original-player-full57-win-x64.zip -Force
 
       - name: Upload TEST artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-TEST-v3-full57-win-x64
-          path: dwrean-tv-TEST-v3-full57-win-x64.zip
+          name: dwrean-tv-TEST-v4-original-player-full57-win-x64
+          path: dwrean-tv-TEST-v4-original-player-full57-win-x64.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -81,9 +74,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view test-full57-v3 *> $null
+          gh release view test-full57-v4 *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release delete test-full57-v3 --cleanup-tag -y
+            gh release delete test-full57-v4 --cleanup-tag -y
           }
-          gh release create test-full57-v3 dwrean-tv-TEST-v3-full57-win-x64.zip --target "${{ github.sha }}" --title "dwrean.TV TEST v3 - 57 channels" --notes "TEST build only. Does not replace v0.2.0. Keeps the working ERT streams and routes Siliconweb HLS streams through a localhost proxy before LibVLC playback."
-          gh release edit test-full57-v3 --prerelease
+          gh release create test-full57-v4 dwrean-tv-TEST-v4-original-player-full57-win-x64.zip --target "${{ github.sha }}" --title "dwrean.TV TEST v4 - original player + 57 channels" --notes "TEST only. The LibVLC playback code is exactly the original direct channel.Url logic. No proxy, no alternate streams, no ERT patching. The only functional change is that a complete 57-channel list is bundled locally so startup does not depend on raw.githubusercontent.com."
+          gh release edit test-full57-v4 --prerelease
