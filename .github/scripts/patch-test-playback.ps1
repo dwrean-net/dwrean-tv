@@ -1,6 +1,11 @@
 $path = 'src/DwreanTv/MainForm.cs'
 $text = Get-Content -LiteralPath $path -Raw
 
+# Add the local HLS proxy next to the existing channel service.
+$text = $text.Replace(
+    '    private readonly ChannelService _channelService = new();',
+    "    private readonly ChannelService _channelService = new();`n    private readonly HlsProxyService _hlsProxy = new();")
+
 # Add a generation counter so an old failed stream cannot interfere
 # after the user selects another channel.
 $text = [regex]::Replace(
@@ -8,6 +13,14 @@ $text = [regex]::Replace(
     '(?m)^    private Channel\? _currentChannel;\r?\n',
     "    private Channel? _currentChannel;`n    private int _playbackGeneration;`n",
     1)
+
+# Dispose the local proxy when the application closes.
+$text = $text.Replace(
+    "        _mediaPlayer.Dispose();`n        _libVlc.Dispose();",
+    "        _mediaPlayer.Dispose();`n        _libVlc.Dispose();`n        _hlsProxy.Dispose();")
+$text = $text.Replace(
+    "        _mediaPlayer.Dispose();`r`n        _libVlc.Dispose();",
+    "        _mediaPlayer.Dispose();`r`n        _libVlc.Dispose();`r`n        _hlsProxy.Dispose();")
 
 $startMarker = '    private void PlayChannel(Channel channel)'
 $endMarker = '    private bool IsFavorite(Channel channel)'
@@ -43,13 +56,23 @@ $replacement = @'
             {
                 _mediaPlayer.Stop();
                 _currentMedia?.Dispose();
-                _currentMedia = new Media(_libVlc, new Uri(candidate.Url));
+
+                // Siliconweb HLS endpoints are reachable with .NET/curl but can
+                // fail when LibVLC talks to their HTTPS CDN directly. For those
+                // endpoints only, let the app fetch/rewrite HLS over localhost
+                // and let LibVLC play the local HTTP stream.
+                var playbackUrl = candidate.Url.Contains("siliconweb.com", StringComparison.OrdinalIgnoreCase)
+                    ? _hlsProxy.BuildProxyUrl(candidate.Url, candidate.Referrer)
+                    : candidate.Url;
+
+                _currentMedia = new Media(_libVlc, new Uri(playbackUrl));
                 _currentMedia.AddOption(":network-caching=1200");
                 _currentMedia.AddOption(":live-caching=1200");
                 _currentMedia.AddOption(":http-reconnect=true");
                 _currentMedia.AddOption(":http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36");
 
-                if (!string.IsNullOrWhiteSpace(candidate.Referrer))
+                if (!string.IsNullOrWhiteSpace(candidate.Referrer) &&
+                    !playbackUrl.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase))
                 {
                     _currentMedia.AddOption($":http-referrer={candidate.Referrer}");
                 }
@@ -68,7 +91,7 @@ $replacement = @'
                 continue;
             }
 
-            var deadline = DateTime.UtcNow.AddSeconds(9);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
             while (DateTime.UtcNow < deadline)
             {
                 if (generation != _playbackGeneration || _currentChannel != channel)
