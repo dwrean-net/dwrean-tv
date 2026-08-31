@@ -4,7 +4,7 @@
 
 **Δωρεάν ελληνικά τηλεοπτικά κανάλια σε μία απλή portable εφαρμογή για Windows.**
 
-[![Λήψη τελευταίας έκδοσης](https://img.shields.io/badge/Λήψη-v0.2.0-EF2D32?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
+[![Λήψη τελευταίας έκδοσης](https://img.shields.io/badge/Λήψη-v0.2.1-EF2D32?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![Portable](https://img.shields.io/badge/Portable-Χωρίς%20εγκατάσταση-2E7D32?style=for-the-badge)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![dwrean.net](https://img.shields.io/badge/dwrean.net-Επίσημο%20site-EF2D32?style=for-the-badge)](https://www.dwrean.net/)
@@ -50,9 +50,13 @@
 
 Δοκίμασε πρώτα το κουμπί **↻ επαναφόρτωσης**. Αν το πρόβλημα παραμένει, μπορείς να το αναφέρεις από το [Issues](https://github.com/dwrean-net/dwrean-tv/issues/new/choose) του project.
 
+## Αξιόπιστη ενημέρωση λίστας
+
+Η εφαρμογή προσπαθεί αυτόματα από περισσότερες από μία πηγές για να ενημερώσει τη λίστα καναλιών. Αν μία υπηρεσία του GitHub καθυστερεί ή δεν είναι προσωρινά διαθέσιμη, χρησιμοποιείται εναλλακτική πηγή, το τελευταίο αποθηκευμένο αντίγραφο ή μια βασική εφεδρική λίστα, ώστε η εφαρμογή να μη μένει άδεια.
+
 ## Από πού ενημερώνονται τα κανάλια
 
-Η λίστα ενημερώνεται από το δημόσιο project [Free-TV/IPTV – Greece](https://github.com/Free-TV/IPTV/blob/master/lists/greece.md). Η εφαρμογή εμφανίζει μόνο τηλεοπτικές εγγραφές και εξαιρεί YouTube streams και την ενότητα Radio.
+Η κύρια λίστα ενημερώνεται από το δημόσιο project [Free-TV/IPTV – Greece](https://github.com/Free-TV/IPTV/blob/master/lists/greece.md). Η εφαρμογή εμφανίζει μόνο τηλεοπτικές εγγραφές και εξαιρεί YouTube streams και την ενότητα Radio.
 
 Η εφαρμογή **δεν φιλοξενεί ούτε αναμεταδίδει η ίδια τηλεοπτικό περιεχόμενο**.
 
@@ -68,6 +72,6 @@
 
 ### [⬇️ Κατέβασε την τελευταία έκδοση](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 
-**Έκδοση v0.2.0**
+**Έκδοση v0.2.1**
 
 </div>
