@@ -36,12 +36,12 @@ jobs:
       - name: Create portable ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-v0.2.1-portable-win-x64.zip -Force
+          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-v0.2.2-portable-win-x64.zip -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-v0.2.1-portable-win-x64
+          name: dwrean-tv-v0.2.2-portable-win-x64
           path: publish
           if-no-files-found: error
           compression-level: 9
@@ -51,10 +51,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view v0.2.1 *> $null
+          gh release view v0.2.2 *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload v0.2.1 dwrean-tv-v0.2.1-portable-win-x64.zip --clobber
+            gh release upload v0.2.2 dwrean-tv-v0.2.2-portable-win-x64.zip --clobber
           }
           else {
-            gh release create v0.2.1 dwrean-tv-v0.2.1-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.2.1" --notes "Hotfix αξιοπιστίας: πολλαπλές πηγές για τη λίστα καναλιών, fallback cache και ενσωματωμένη εφεδρική λίστα ώστε η εφαρμογή να μη μένει άδεια όταν μία υπηρεσία του GitHub καθυστερεί ή δεν απαντά." --latest
+            gh release create v0.2.2 dwrean-tv-v0.2.2-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.2.2" --notes "Δοκιμαστική έκδοση αξιοπιστίας με αυτόματο multi-stream fallback για ΕΡΤ1, ΕΡΤ2, ΕΡΤ3, ERT News, ANT1, Star, Alpha, ΣΚΑΪ, OPEN και MAK TV. Αν μία πηγή δεν ξεκινήσει, η εφαρμογή δοκιμάζει αυτόματα εναλλακτικό stream." --latest
           }
