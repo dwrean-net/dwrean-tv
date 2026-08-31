@@ -28,7 +28,7 @@ public sealed class ChannelService
     public ChannelService()
     {
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.2.3-test");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.3.0");
 
         var dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
         Directory.CreateDirectory(dataDirectory);
@@ -38,8 +38,6 @@ public sealed class ChannelService
 
     public async Task<ChannelLoadResult> LoadAsync(bool forceRefresh = false)
     {
-        // Normal startup: use the exact Free-TV snapshot bundled with the app.
-        // This avoids startup failures when raw.githubusercontent.com is blocked/slow.
         if (!forceRefresh)
         {
             var bundled = await LoadBundledListAsync();
@@ -53,14 +51,12 @@ public sealed class ChannelService
             }
         }
 
-        // Manual Refresh: download the same greece.md and keep every playback URL verbatim.
         var online = await TryLoadFromWebAsync();
         if (online is not null)
         {
             return online;
         }
 
-        // If refresh cannot reach GitHub, keep using the bundled snapshot.
         var fallbackBundled = await LoadBundledListAsync();
         if (fallbackBundled.Count > 0)
         {
@@ -189,8 +185,6 @@ public sealed class ChannelService
             });
         }
 
-        // Preserve the rows and playback URLs from Free-TV as-is.
-        // Only exact duplicate rows are removed.
         return channels
             .GroupBy(c => $"{c.Name}\n{c.Url}", StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
