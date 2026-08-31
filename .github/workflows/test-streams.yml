@@ -14,41 +14,26 @@ jobs:
         shell: pwsh
         run: |
           $streams = [ordered]@{
-            'ERT1-overotm-hls' = 'https://eu5cdn.overotm.com/abr_amd10/ert1/playlist.m3u8'
-            'ERTNews-hbbtv-ts' = 'http://hbbtvapp.ert.gr/stream.php/v/vid_ertnews_mpeg.2ts'
-            'ERTNews-direct-ts' = 'http://195.226.218.163/vid/ertnews/mpeg.2ts'
-            'ERTWorld-hbbtv-ts' = 'http://hbbtv.ert.gr/stream.php/v/vid_ertworld_mpeg.2ts'
-            'ERTWorld-w4-hls' = 'https://w4.ert.gr/ertworld/hls/stream.m3u8'
-            'Vouli-new-hls' = 'https://streamer-cache.grnet.gr/parliament/hls/webtv.m3u8'
-            'ERT1-ascdn-mpd' = 'https://ertflix.ascdn.broadpeak.io/ertlive/ert1/default/index.mpd'
-            'ERT2-ascdn-mpd' = 'https://ertflix.ascdn.broadpeak.io/ert2/default/index.mpd'
-            'ERT3-ascdn-mpd' = 'https://ertflix.ascdn.broadpeak.io/ertlive/ert3/default/index.mpd'
+            'ERTWorld-current' = 'https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTWorld/default/index.mpd'
+            'ERTSports1-current' = 'https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTSports1/default/index.mpd'
+            'ERTSports2-current' = 'https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTSports2/default/index.mpd'
+            'ERTSports3-current' = 'https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTSports3/default/index.mpd'
+            'ERTSports4-current' = 'https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTSports4/default/index.mpd'
+            'ERTKids-current' = 'https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTKids/default/index.mpd'
           }
 
           foreach ($item in $streams.GetEnumerator()) {
-            $safeName = $item.Key -replace '[^a-zA-Z0-9_-]', '_'
-            $file = Join-Path $env:RUNNER_TEMP ($safeName + '.bin')
+            $file = Join-Path $env:RUNNER_TEMP (($item.Key -replace '[^a-zA-Z0-9_-]', '_') + '.txt')
             Write-Host "=== $($item.Key) ==="
-            Write-Host $item.Value
             & curl.exe -L --fail --silent --show-error --max-time 15 --connect-timeout 8 --range 0-65535 -A 'VLC/3.0 dwrean.TV-test' $item.Value -o $file
-            $code = $LASTEXITCODE
-            if ($code -ne 0) {
-              Write-Host "RESULT: FAIL (curl exit $code)"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "RESULT: FAIL (curl exit $LASTEXITCODE)"
               continue
             }
-            $size = (Get-Item $file).Length
             $text = Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
-            if ($text -match '#EXTM3U') {
-              Write-Host "RESULT: OK HLS ($size bytes)"
-            }
-            elseif ($text -match '<MPD' -or $text -match 'urn:mpeg:dash:schema:mpd') {
-              Write-Host "RESULT: OK DASH ($size bytes)"
-            }
-            elseif ($size -gt 1000) {
-              Write-Host "RESULT: OK MEDIA RESPONSE ($size bytes)"
-            }
-            else {
-              Write-Host "RESULT: UNKNOWN RESPONSE ($size bytes)"
-            }
+            $size = (Get-Item $file).Length
+            if ($text -match '#EXTM3U') { Write-Host "RESULT: OK HLS ($size bytes)" }
+            elseif ($text -match '<MPD' -or $text -match 'urn:mpeg:dash:schema:mpd') { Write-Host "RESULT: OK DASH ($size bytes)" }
+            else { Write-Host "RESULT: UNKNOWN RESPONSE ($size bytes)" }
           }
           exit 0
