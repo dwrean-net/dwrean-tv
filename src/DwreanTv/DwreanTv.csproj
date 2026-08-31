@@ -10,8 +10,21 @@
     <RootNamespace>DwreanTv</RootNamespace>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>false</PublishSingleFile>
+
+    <!--
+      Bundle all managed .NET assemblies (including LibVLCSharp.dll and
+      LibVLCSharp.WinForms.dll) inside dwrean.TV.exe. The native VideoLAN
+      files remain next to the app, which is the most reliable layout for
+      LibVLC while avoiding a loose LibVLCSharp.dll that Smart App Control
+      may block on some Windows 11 systems.
+    -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun>false</PublishReadyToRun>
+    <DebugType>embedded</DebugType>
+
     <ApplicationIcon>Assets\dwrean.ico</ApplicationIcon>
     <Version>0.2.0</Version>
     <Authors>Κυριάκος Οικονομίδης / dwrean.net</Authors>
