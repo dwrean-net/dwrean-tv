@@ -1,0 +1,51 @@
+name: Test ERT streams
+
+on:
+  push:
+    branches:
+      - 'test/ert-stream-probe'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - name: Probe candidate streams
+        shell: pwsh
+        run: |
+          $streams = [ordered]@{
+            'ERT1-llnwi' = 'https://ertflix.s.llnwi.net/ertlive/ert1/clrdef24723b/playlist.m3u8'
+            'ERT2-llnwi' = 'https://ertflix.s.llnwi.net/ertlive/ert2/clrdef24828z/playlist.m3u8'
+            'ERT3-llnwi' = 'https://ertflix.s.llnwi.net/ertlive/ert3/clrdef24828n/playlist.m3u8'
+            'ERTNews-llnwi' = 'https://ertflix.s.llnwi.net/ertlive/ertnews/default/playlist.m3u8'
+            'ERTWorld-siliconweb' = 'http://ert-live-bcbs15228.siliconweb.com/media/ert_world/ert_worldmedium.m3u8'
+            'ERTSports1-siliconweb' = 'http://ert-live-bcbs15228.siliconweb.com/media/ert_sports/ert_sports.m3u8'
+            'ERTSports2-siliconweb' = 'http://ert-live-bcbs15228.siliconweb.com/media/ert_sports_2/ert_sports_2medium.m3u8'
+            'ERTSports3-siliconweb' = 'http://ert-live-bcbs15228.siliconweb.com/media/ert_sports_3/ert_sports_3medium.m3u8'
+            'ERTSports4-siliconweb' = 'http://ert-live-bcbs15228.siliconweb.com/media/ert_sports_4/ert_sports_4medium.m3u8'
+            'ERTKids-akamai' = 'https://ertflix.akamaized.net/ertlive/kids/default/index.m3u8'
+            'ERTNews-ascdn' = 'https://ertflix.ascdn.broadpeak.io/ertlive/ertnews/default/index.m3u8'
+            'ERTWorld-new' = 'https://ertflix-ertworld.siliconweb.com/mpegts/618618_3479286/master_mpegts.m3u8'
+          }
+
+          $ok = 0
+          foreach ($item in $streams.GetEnumerator()) {
+            $file = Join-Path $env:RUNNER_TEMP ($item.Key + '.txt')
+            Write-Host "=== $($item.Key) ==="
+            Write-Host $item.Value
+            & curl.exe -L --fail --silent --show-error --max-time 15 --connect-timeout 8 -A 'VLC/3.0 dwrean.TV-test' $item.Value -o $file
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host 'RESULT: FAIL (curl)'
+              continue
+            }
+            $text = Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
+            if ($text -match '#EXTM3U') {
+              Write-Host 'RESULT: OK HLS'
+              $ok++
+            }
+            else {
+              $size = (Get-Item $file).Length
+              Write-Host "RESULT: RESPONSE but not HLS manifest ($size bytes)"
+            }
+          }
+          Write-Host "TOTAL HLS OK: $ok / $($streams.Count)"
