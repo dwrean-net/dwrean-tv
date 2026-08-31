@@ -10,7 +10,7 @@ jobs:
   probe:
     runs-on: windows-latest
     steps:
-      - name: Probe candidate streams
+      - name: Probe HLS variants and segments
         shell: pwsh
         run: |
           $tests = @(
@@ -21,30 +21,68 @@ jobs:
             @{ Name='ERTNews'; Url='https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTNews/default/index.m3u8'; Referer='https://www.ert.gr/tv-live/' }
           )
 
-          $agents = [ordered]@{
-            'vlc' = 'VLC/3.0.23 LibVLC/3.0.23'
-            'browser' = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152 Safari/537.36'
+          $ua = 'VLC/3.0.23 LibVLC/3.0.23'
+
+          function Get-AbsUrl([string]$baseUrl, [string]$child) {
+            if ($child -match '^https?://') { return $child }
+            return ([Uri]::new([Uri]$baseUrl, $child)).AbsoluteUri
+          }
+
+          function Fetch-Text([string]$url, [string]$referer, [string]$outfile) {
+            & curl.exe -L --fail --silent --show-error --max-time 20 --connect-timeout 8 -A $ua -e $referer $url -o $outfile
+            return ($LASTEXITCODE -eq 0)
           }
 
           foreach ($t in $tests) {
-            foreach ($agent in $agents.GetEnumerator()) {
-              foreach ($refMode in @('noref','referer')) {
-                $file = Join-Path $env:RUNNER_TEMP (($t.Name + '-' + $agent.Key + '-' + $refMode) + '.txt')
-                Write-Host "=== $($t.Name) / $($agent.Key) / $refMode ==="
-                $args = @('-L','--fail','--silent','--show-error','--max-time','15','--connect-timeout','8','-A',$agent.Value)
-                if ($refMode -eq 'referer') { $args += @('-e', $t.Referer) }
-                $args += @($t.Url, '-o', $file)
-                & curl.exe @args
-                if ($LASTEXITCODE -ne 0) {
-                  Write-Host "RESULT: FAIL (curl exit $LASTEXITCODE)"
-                  continue
-                }
-                $text = Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
-                $size = (Get-Item $file).Length
-                if ($text -match '#EXTM3U') { Write-Host "RESULT: OK HLS ($size bytes)" }
-                elseif ($text -match '<MPD' -or $text -match 'urn:mpeg:dash:schema:mpd') { Write-Host "RESULT: OK DASH ($size bytes)" }
-                else { Write-Host "RESULT: UNKNOWN RESPONSE ($size bytes)" }
-              }
+            Write-Host "`n================ $($t.Name) ================"
+            $masterFile = Join-Path $env:RUNNER_TEMP ($t.Name + '-master.txt')
+            if (-not (Fetch-Text $t.Url $t.Referer $masterFile)) {
+              Write-Host 'MASTER: FAIL'
+              continue
             }
+            $master = Get-Content -LiteralPath $masterFile -Raw
+            Write-Host "MASTER: OK $((Get-Item $masterFile).Length) bytes"
+            Write-Host '--- master manifest ---'
+            Write-Host $master
+
+            $masterLines = $master -split "`r?`n"
+            $uriLines = @($masterLines | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+            if ($uriLines.Count -eq 0) {
+              Write-Host 'NO URI IN MASTER'
+              continue
+            }
+
+            $playlistUrl = $t.Url
+            $playlist = $master
+            if ($master -match '#EXT-X-STREAM-INF') {
+              $playlistUrl = Get-AbsUrl $t.Url $uriLines[0]
+              Write-Host "VARIANT URL: $playlistUrl"
+              $variantFile = Join-Path $env:RUNNER_TEMP ($t.Name + '-variant.txt')
+              if (-not (Fetch-Text $playlistUrl $t.Referer $variantFile)) {
+                Write-Host 'VARIANT: FAIL'
+                continue
+              }
+              $playlist = Get-Content -LiteralPath $variantFile -Raw
+              Write-Host "VARIANT: OK $((Get-Item $variantFile).Length) bytes"
+              Write-Host '--- variant manifest first lines ---'
+              ($playlist -split "`r?`n" | Select-Object -First 20) | ForEach-Object { Write-Host $_ }
+            }
+
+            $playlistLines = $playlist -split "`r?`n"
+            $segmentLine = $playlistLines | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } | Select-Object -First 1
+            if (-not $segmentLine) {
+              Write-Host 'NO SEGMENT URI'
+              continue
+            }
+            $segmentUrl = Get-AbsUrl $playlistUrl $segmentLine
+            Write-Host "SEGMENT URL: $segmentUrl"
+            $segmentFile = Join-Path $env:RUNNER_TEMP ($t.Name + '-segment.bin')
+            & curl.exe -L --fail --silent --show-error --max-time 20 --connect-timeout 8 --range 0-131071 -A $ua -e $t.Referer $segmentUrl -o $segmentFile
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "SEGMENT: FAIL (curl exit $LASTEXITCODE)"
+              continue
+            }
+            $segmentSize = (Get-Item $segmentFile).Length
+            Write-Host "SEGMENT: OK $segmentSize bytes"
           }
           exit 0
