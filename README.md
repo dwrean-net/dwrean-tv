@@ -4,7 +4,7 @@
 
 **Δωρεάν ελληνικά τηλεοπτικά κανάλια σε μία απλή portable εφαρμογή για Windows.**
 
-[![Λήψη τελευταίας έκδοσης](https://img.shields.io/badge/Λήψη-v0.2.1-EF2D32?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
+[![Λήψη τελευταίας έκδοσης](https://img.shields.io/badge/Λήψη-v0.2.2-EF2D32?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![Portable](https://img.shields.io/badge/Portable-Χωρίς%20εγκατάσταση-2E7D32?style=for-the-badge)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![dwrean.net](https://img.shields.io/badge/dwrean.net-Επίσημο%20site-EF2D32?style=for-the-badge)](https://www.dwrean.net/)
@@ -30,6 +30,10 @@
 - Να επαναφορτώνεις ένα κανάλι όταν το stream δεν ανταποκρίνεται.
 - Να λαμβάνεις αυτόματα ενημερωμένη λίστα καναλιών χωρίς να κατεβάζεις νέα έκδοση κάθε φορά που αλλάζει κάποιο stream.
 
+## Νέο στη v0.2.2
+
+Για τα βασικά κανάλια, η εφαρμογή δεν βασίζεται πλέον σε ένα μόνο stream. Για ΕΡΤ1, ΕΡΤ2, ΕΡΤ3, ERT News, ANT1, Star, Alpha, ΣΚΑΪ, OPEN και MAK TV υπάρχουν εναλλακτικές πηγές. Αν η πρώτη πηγή δεν ξεκινήσει μέσα σε λίγα δευτερόλεπτα, η εφαρμογή δοκιμάζει αυτόματα την επόμενη.
+
 ## Πώς τη χρησιμοποιείς
 
 1. Πάτησε το κουμπί **Λήψη τελευταίας έκδοσης** παραπάνω.
@@ -46,9 +50,9 @@
 
 ## Αν κάποιο κανάλι δεν παίζει
 
-Η εφαρμογή δεν φιλοξενεί τα τηλεοπτικά streams. Η διαθεσιμότητα κάθε καναλιού εξαρτάται από την αντίστοιχη δημόσια πηγή, επομένως κάποιο stream μπορεί προσωρινά να είναι εκτός λειτουργίας ή να έχει γεωγραφικό περιορισμό.
+Η εφαρμογή δεν φιλοξενεί τα τηλεοπτικά streams. Η διαθεσιμότητα κάθε καναλιού εξαρτάται από την αντίστοιχη δημόσια πηγή και κάποιο stream μπορεί προσωρινά να είναι εκτός λειτουργίας ή να έχει γεωγραφικό περιορισμό.
 
-Δοκίμασε πρώτα το κουμπί **↻ επαναφόρτωσης**. Αν το πρόβλημα παραμένει, μπορείς να το αναφέρεις από το [Issues](https://github.com/dwrean-net/dwrean-tv/issues/new/choose) του project.
+Στη v0.2.2 τα βασικά κανάλια δοκιμάζουν αυτόματα περισσότερες από μία πηγές πριν εμφανιστεί μήνυμα αποτυχίας.
 
 ## Αξιόπιστη ενημέρωση λίστας
 
@@ -56,7 +60,9 @@
 
 ## Από πού ενημερώνονται τα κανάλια
 
-Η κύρια λίστα ενημερώνεται από το δημόσιο project [Free-TV/IPTV – Greece](https://github.com/Free-TV/IPTV/blob/master/lists/greece.md). Η εφαρμογή εμφανίζει μόνο τηλεοπτικές εγγραφές και εξαιρεί YouTube streams και την ενότητα Radio.
+Η κύρια λίστα ενημερώνεται από το δημόσιο project [Free-TV/IPTV – Greece](https://github.com/Free-TV/IPTV/blob/master/lists/greece.md). Για την αξιοπιστία των βασικών καναλιών χρησιμοποιούνται επίσης εναλλακτικά δημόσια stream URLs όταν η κύρια πηγή δεν ανταποκρίνεται.
+
+Η εφαρμογή εμφανίζει μόνο τηλεοπτικές εγγραφές και εξαιρεί YouTube streams και την ενότητα Radio.
 
 Η εφαρμογή **δεν φιλοξενεί ούτε αναμεταδίδει η ίδια τηλεοπτικό περιεχόμενο**.
 
@@ -64,14 +70,12 @@
 
 **Κυριάκος Οικονομίδης — [dwrean.net](https://www.dwrean.net/)**
 
-Το dwrean.net παρουσιάζει δωρεάν εφαρμογές, παιχνίδια, εργαλεία και χρήσιμους οδηγούς για υπολογιστές και κινητά.
-
 ---
 
 <div align="center">
 
 ### [⬇️ Κατέβασε την τελευταία έκδοση](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 
-**Έκδοση v0.2.1**
+**Έκδοση v0.2.2**
 
 </div>
