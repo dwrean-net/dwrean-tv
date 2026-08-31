@@ -106,26 +106,28 @@ public sealed class ChannelService
             }
 
             var rawName = WebUtility.HtmlDecode(rowMatch.Groups["name"].Value.Trim());
-            var url = WebUtility.HtmlDecode(rowMatch.Groups["url"].Value.Trim());
+            var sourceUrl = WebUtility.HtmlDecode(rowMatch.Groups["url"].Value.Trim());
             var logoCell = rowMatch.Groups["logo"].Value;
             var epgId = WebUtility.HtmlDecode(rowMatch.Groups["epg"].Value.Trim());
             var logoMatch = LogoRegex.Match(logoCell);
             var logoUrl = logoMatch.Success ? WebUtility.HtmlDecode(logoMatch.Groups["url"].Value.Trim()) : string.Empty;
 
-            if (!Uri.TryCreate(url, UriKind.Absolute, out _))
+            if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out _))
             {
                 continue;
             }
 
-            if (IsYouTubeUrl(url) || rawName.Contains('Ⓨ'))
+            if (IsYouTubeUrl(sourceUrl) || rawName.Contains('Ⓨ'))
             {
                 continue;
             }
+
+            var playbackUrl = GetCompatibilityPlaybackUrl(sourceUrl);
 
             channels.Add(new Channel
             {
                 Name = CleanName(rawName),
-                Url = url,
+                Url = playbackUrl,
                 LogoUrl = logoUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? logoUrl : string.Empty,
                 EpgId = epgId,
                 Category = currentCategory,
@@ -135,6 +137,33 @@ public sealed class ChannelService
         }
 
         return Sanitize(channels);
+    }
+
+    private static string GetCompatibilityPlaybackUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url;
+        }
+
+        // Free-TV currently lists the ERT family as DASH (.mpd). The same
+        // Broadpeak/Siliconweb endpoints also expose HLS manifests. HLS is
+        // substantially more reliable with the embedded LibVLC 3 player.
+        if (url.EndsWith("/index.mpd", StringComparison.OrdinalIgnoreCase) &&
+            (uri.Host.Equals("ert-live.siliconweb.com", StringComparison.OrdinalIgnoreCase) ||
+             uri.Host.Equals("ert-ucdn.broadpeak-aas.com", StringComparison.OrdinalIgnoreCase)))
+        {
+            return url[..^3] + "m3u8";
+        }
+
+        // Prefer TLS for SKAI when the source list still points to http.
+        if (uri.Host.Equals("skai-live.siliconweb.com", StringComparison.OrdinalIgnoreCase) &&
+            uri.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase))
+        {
+            return "https://" + url["http://".Length..];
+        }
+
+        return url;
     }
 
     private async Task SaveCacheAsync(List<Channel> channels)
@@ -154,7 +183,16 @@ public sealed class ChannelService
         {
             var json = await File.ReadAllTextAsync(_cachePath);
             var cached = JsonSerializer.Deserialize<List<Channel>>(json) ?? new List<Channel>();
-            return Sanitize(cached);
+            return Sanitize(cached.Select(channel => new Channel
+            {
+                Name = channel.Name,
+                Url = GetCompatibilityPlaybackUrl(channel.Url),
+                LogoUrl = channel.LogoUrl,
+                EpgId = channel.EpgId,
+                Category = channel.Category,
+                GeoBlocked = channel.GeoBlocked,
+                IsYouTube = channel.IsYouTube
+            }));
         }
         catch
         {
