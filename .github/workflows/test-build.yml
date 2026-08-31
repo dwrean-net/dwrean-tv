@@ -1,4 +1,4 @@
-name: Build dwrean.TV TEST v2 full57
+name: Build dwrean.TV TEST v3 full57
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
           $text = $text.Replace('https://diavlos-cache.cnt.grnet.gr/parltv/webtv-1b.sdp/playlist.m3u8', 'https://streamer-cache.grnet.gr/parliament/hls/webtv.m3u8')
           Set-Content -LiteralPath $path -Value $text -Encoding utf8
 
-      - name: Patch TEST multi-stream playback engine
+      - name: Patch TEST v3 playback engine
         shell: pwsh
         run: ./.github/scripts/patch-test-playback.ps1
 
@@ -42,6 +42,9 @@ jobs:
           Write-Host "Embedded channel rows: $($rows.Count)"
           if ($rows.Count -ne 57) {
             throw "Expected exactly 57 embedded channels, found $($rows.Count)."
+          }
+          if (-not (Test-Path 'src/DwreanTv/Services/HlsProxyService.cs')) {
+            throw 'HlsProxyService.cs is missing.'
           }
 
       - name: Setup .NET
@@ -63,13 +66,13 @@ jobs:
 
       - name: Create TEST ZIP
         shell: pwsh
-        run: Compress-Archive -Path publish\* -DestinationPath dwrean-tv-TEST-v2-full57-win-x64.zip -Force
+        run: Compress-Archive -Path publish\* -DestinationPath dwrean-tv-TEST-v3-full57-win-x64.zip -Force
 
       - name: Upload TEST artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-TEST-v2-full57-win-x64
-          path: dwrean-tv-TEST-v2-full57-win-x64.zip
+          name: dwrean-tv-TEST-v3-full57-win-x64
+          path: dwrean-tv-TEST-v3-full57-win-x64.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -78,9 +81,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view test-full57-v2 *> $null
+          gh release view test-full57-v3 *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release delete test-full57-v2 --cleanup-tag -y
+            gh release delete test-full57-v3 --cleanup-tag -y
           }
-          gh release create test-full57-v2 dwrean-tv-TEST-v2-full57-win-x64.zip --target "${{ github.sha }}" --title "dwrean.TV TEST v2 - 57 channels" --notes "TEST build only. Does not replace v0.2.0. Adds automatic multi-stream fallback for Star, Alpha, SKAI, Open and ERT1/2/3."
-          gh release edit test-full57-v2 --prerelease
+          gh release create test-full57-v3 dwrean-tv-TEST-v3-full57-win-x64.zip --target "${{ github.sha }}" --title "dwrean.TV TEST v3 - 57 channels" --notes "TEST build only. Does not replace v0.2.0. Keeps the working ERT streams and routes Siliconweb HLS streams through a localhost proxy before LibVLC playback."
+          gh release edit test-full57-v3 --prerelease
