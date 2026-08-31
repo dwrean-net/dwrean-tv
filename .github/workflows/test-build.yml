@@ -1,0 +1,116 @@
+name: Build dwrean.TV TEST full57
+
+on:
+  push:
+    branches:
+      - 'test/full-channel-fallback'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+
+      - name: Patch ERT test endpoints
+        shell: pwsh
+        run: |
+          $path = 'src/DwreanTv/Data/default-greece.md'
+          $text = Get-Content -LiteralPath $path -Raw
+
+          # The Free-TV source URLs for ERT1/2/3/News were verified as HTTP 404.
+          # These newer endpoints are geo-aware, so the final playback check must
+          # be performed from Greece by the app tester.
+          $text = $text.Replace(
+            'https://ert-live.siliconweb.com/bpk-tv/ERT1/default/index.mpd',
+            'https://ertflix.ascdn.broadpeak.io/ertlive/ert1/default/index.mpd')
+          $text = $text.Replace(
+            'https://ert-live.siliconweb.com/bpk-tv/ERT2/default/index.mpd',
+            'https://ertflix.ascdn.broadpeak.io/ert2/default/index.mpd')
+          $text = $text.Replace(
+            'https://ert-live.siliconweb.com/bpk-tv/ERT3/default/index.mpd',
+            'https://ertflix.ascdn.broadpeak.io/ertlive/ert3/default/index.mpd')
+          $text = $text.Replace(
+            'https://ert-live.siliconweb.com/bpk-tv/ERTNews/default/index.mpd',
+            'http://hbbtvapp.ert.gr/stream.php/v/vid_ertnews_mpeg.2ts')
+          $text = $text.Replace(
+            'https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTWorld/default/index.mpd',
+            'http://hbbtv.ert.gr/stream.php/v/vid_ertworld_mpeg.2ts')
+
+          # This current Parliament HLS endpoint was verified successfully.
+          $text = $text.Replace(
+            'https://diavlos-cache.cnt.grnet.gr/parltv/webtv-1b.sdp/playlist.m3u8',
+            'https://streamer-cache.grnet.gr/parliament/hls/webtv.m3u8')
+
+          Set-Content -LiteralPath $path -Value $text -Encoding utf8
+
+      - name: Validate embedded 57-channel snapshot
+        shell: pwsh
+        run: |
+          $path = 'src/DwreanTv/Data/default-greece.md'
+          $text = Get-Content -LiteralPath $path -Raw
+          $rows = [regex]::Matches($text, '(?m)^\|\s*\d+\s*\|.*?\[>\]\(https?://')
+          Write-Host "Embedded channel rows: $($rows.Count)"
+          if ($rows.Count -ne 57) {
+            throw "Expected exactly 57 embedded channels, found $($rows.Count)."
+          }
+
+          $dead = @(
+            'ert-live.siliconweb.com/bpk-tv/ERT1/',
+            'ert-live.siliconweb.com/bpk-tv/ERT2/',
+            'ert-live.siliconweb.com/bpk-tv/ERT3/',
+            'ert-live.siliconweb.com/bpk-tv/ERTNews/',
+            'ert-ucdn.broadpeak-aas.com/bpk-tv/ERTWorld/'
+          )
+          foreach ($needle in $dead) {
+            if ($text.Contains($needle)) {
+              throw "Stale ERT endpoint still present: $needle"
+            }
+          }
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/DwreanTv/DwreanTv.csproj
+
+      - name: Publish TEST portable build
+        run: dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Remove unused VLC architectures
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force publish\libvlc\win-x86 -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force publish\libvlc\win-arm64 -ErrorAction SilentlyContinue
+
+      - name: Create TEST ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-TEST-full57-win-x64.zip -Force
+
+      - name: Upload TEST artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dwrean-tv-TEST-full57-win-x64
+          path: dwrean-tv-TEST-full57-win-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish isolated TEST prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view test-full57 *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete test-full57 --cleanup-tag -y
+          }
+          gh release create test-full57 dwrean-tv-TEST-full57-win-x64.zip --target "${{ github.sha }}" --title "dwrean.TV TEST — 57 channels" --notes "TEST build only. Does not replace v0.2.0. Includes the complete 57-channel embedded snapshot and test ERT endpoint corrections."
+          gh release edit test-full57 --prerelease
