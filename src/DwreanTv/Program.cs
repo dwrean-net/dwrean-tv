@@ -1,10 +1,13 @@
 using System.Drawing.Drawing2D;
+using System.Reflection;
 using LibVLCSharp.Shared;
 
 namespace DwreanTv;
 
 internal static class Program
 {
+    private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+
     [STAThread]
     private static void Main()
     {
@@ -12,8 +15,58 @@ internal static class Program
         ApplicationConfiguration.Initialize();
 
         var mainForm = new MainForm();
+        InstallPlaybackCompatibility(mainForm);
         ApplyFinalPolish(mainForm);
         Application.Run(mainForm);
+    }
+
+    private static void InstallPlaybackCompatibility(MainForm form)
+    {
+        var field = typeof(MainForm).GetField("_mediaPlayer", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field?.GetValue(form) is not MediaPlayer player)
+        {
+            return;
+        }
+
+        player.MediaChanged += (_, e) =>
+        {
+            var media = e.Media;
+            var mrl = media.Mrl ?? string.Empty;
+
+            // Several Greek CDNs reject the default LibVLC identity even when
+            // the stream itself is public. A normal browser identity greatly
+            // improves HLS/DASH compatibility.
+            media.AddOption($":http-user-agent={BrowserUserAgent}");
+            media.AddOption(":http-reconnect=true");
+            media.AddOption(":network-caching=2500");
+            media.AddOption(":live-caching=2500");
+
+            if (mrl.Contains("antennaplus.gr", StringComparison.OrdinalIgnoreCase))
+            {
+                // ANT1 and MAK TV require the referrer used by Antenna's web player.
+                media.AddOption(":http-referrer=http://watch.antennaplus.gr");
+            }
+            else if (mrl.Contains("alphatvlive", StringComparison.OrdinalIgnoreCase))
+            {
+                media.AddOption(":http-referrer=https://www.alphatv.gr/");
+            }
+            else if (mrl.Contains("livestar.siliconweb.com", StringComparison.OrdinalIgnoreCase))
+            {
+                media.AddOption(":http-referrer=https://www.star.gr/");
+            }
+            else if (mrl.Contains("skai-live", StringComparison.OrdinalIgnoreCase))
+            {
+                media.AddOption(":http-referrer=https://www.skai.gr/");
+            }
+            else if (mrl.Contains("liveopen", StringComparison.OrdinalIgnoreCase))
+            {
+                media.AddOption(":http-referrer=https://www.tvopen.gr/");
+            }
+            else if (mrl.Contains("msvdn.net", StringComparison.OrdinalIgnoreCase))
+            {
+                media.AddOption(":http-referrer=https://www.megatv.com/");
+            }
+        };
     }
 
     private static void ApplyFinalPolish(Form form)
