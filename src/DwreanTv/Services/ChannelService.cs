@@ -205,7 +205,7 @@ public sealed class ChannelService
             channels.Add(new Channel
             {
                 Name = CleanName(rawName),
-                Url = sourceUrl,
+                Url = GetPreferredPlaybackUrl(epgId, sourceUrl),
                 LogoUrl = logoUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                     ? logoUrl
                     : string.Empty,
@@ -217,6 +217,18 @@ public sealed class ChannelService
         }
 
         return Sanitize(channels);
+    }
+
+    private static string GetPreferredPlaybackUrl(string epgId, string sourceUrl)
+    {
+        return epgId.Trim() switch
+        {
+            "ERT1.gr" => "https://ertflix.s.llnwi.net/ertlive/ert1/default/index.m3u8",
+            "ERT2.gr" => "https://ertflix.s.llnwi.net/ertlive/ert2/default/index.m3u8",
+            "ERT3.gr" => "https://ertflix.s.llnwi.net/ertlive/ert3/default/index.m3u8",
+            "ERTNews.gr" => "https://ertflix.s.llnwi.net/ertlive/ertnews/default/index.m3u8",
+            _ => sourceUrl
+        };
     }
 
     private async Task SaveCacheAsync(List<Channel> channels)
@@ -266,10 +278,10 @@ public sealed class ChannelService
     {
         return Sanitize(
         [
-            C("ERT 1", "https://ert-live.siliconweb.com/bpk-tv/ERT1/default/index.mpd", "https://i.imgur.com/WWMe8IY.png", "ERT1.gr", "Δημόσια", true),
-            C("ERT 2", "https://ert-live.siliconweb.com/bpk-tv/ERT2/default/index.mpd", "https://i.imgur.com/pcusPFl.png", "ERT2.gr", "Δημόσια", true),
-            C("ERT 3", "https://ert-live.siliconweb.com/bpk-tv/ERT3/default/index.mpd", "https://i.imgur.com/KyhzDRm.png", "ERT3.gr", "Δημόσια", true),
-            C("ERT News", "https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTNews/default/index.mpd", "https://i.imgur.com/saIGLvr.png", "ERTNews.gr", "Δημόσια"),
+            C("ERT 1", "https://ertflix.s.llnwi.net/ertlive/ert1/default/index.m3u8", "https://i.imgur.com/WWMe8IY.png", "ERT1.gr", "Δημόσια", true),
+            C("ERT 2", "https://ertflix.s.llnwi.net/ertlive/ert2/default/index.m3u8", "https://i.imgur.com/pcusPFl.png", "ERT2.gr", "Δημόσια", true),
+            C("ERT 3", "https://ertflix.s.llnwi.net/ertlive/ert3/default/index.m3u8", "https://i.imgur.com/KyhzDRm.png", "ERT3.gr", "Δημόσια", true),
+            C("ERT News", "https://ertflix.s.llnwi.net/ertlive/ertnews/default/index.m3u8", "https://i.imgur.com/saIGLvr.png", "ERTNews.gr", "Δημόσια"),
             C("ERT Cosmos", "https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTCosmos/default/index.mpd", "https://i.imgur.com/KsMTWYw.png", "ERTWorld.gr", "Δημόσια"),
             C("ERT Sports 1", "https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTSports1/default/index.mpd", "https://i.imgur.com/gebWmAB.png", "ERTSports1.gr", "Δημόσια"),
             C("ERT Sports 2", "https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTSports2/default/index.mpd", "https://i.imgur.com/gebWmAB.png", "ERTSports2.gr", "Δημόσια"),
