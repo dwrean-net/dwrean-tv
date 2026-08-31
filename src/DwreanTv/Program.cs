@@ -11,13 +11,13 @@ namespace DwreanTv;
 
 internal static class Program
 {
-    private const string CurrentVersion = "0.2.4-mpv-test";
+    private const string CurrentVersion = "0.2.5-mpv-test";
 
     [STAThread]
     private static void Main()
     {
-        // MainForm still contains the legacy LibVLC controls, so its native runtime
-        // must be initialized. Actual TV playback in this test is handled by mpv.
+        // MainForm still references LibVLC, therefore its native runtime must be initialized.
+        // Actual TV playback in this test is handled exclusively by one persistent mpv process.
         Core.Initialize();
         ApplicationConfiguration.Initialize();
 
@@ -47,7 +47,9 @@ internal static class Program
         private readonly Button? _retryButton;
         private readonly TrackBar? _volumeTrackBar;
         private readonly MediaPlayer? _legacyPlayer;
+        private readonly Panel _legacySink;
         private readonly System.Windows.Forms.Timer _pollTimer;
+        private readonly SemaphoreSlim _switchGate = new(1, 1);
 
         private Process? _process;
         private string? _pipeName;
@@ -55,6 +57,7 @@ internal static class Program
         private bool _paused;
         private bool _muted;
         private int _volume;
+        private int _switchGeneration;
         private bool _disposed;
 
         public MpvProcessCoordinator(MainForm form)
@@ -75,8 +78,7 @@ internal static class Program
             _volumeTrackBar = typeof(MainForm).GetField("_volumeTrackBar", flags)?.GetValue(form) as TrackBar;
             _legacyPlayer = typeof(MainForm).GetField("_mediaPlayer", flags)?.GetValue(form) as MediaPlayer;
 
-            // Detach LibVLC from the visible surface. The MainForm stays intact, but
-            // mpv owns the actual video output for this test.
+            // Detach LibVLC from the visible VideoView. mpv owns this surface.
             try
             {
                 _videoHost.GetType().GetProperty("MediaPlayer")?.SetValue(_videoHost, null);
@@ -85,10 +87,30 @@ internal static class Program
             {
             }
 
+            // Important: MainForm still calls the old LibVLC PlayChannel method.
+            // Give that player a hidden 1x1 native target so VLC can never create its
+            // own "VLC (Direct3D11 output)" top-level window. We then stop it as soon
+            // as the selected channel is observed by the coordinator.
+            _legacySink = new Panel
+            {
+                Size = new Size(1, 1),
+                Location = new Point(-100, -100),
+                Visible = false
+            };
+            _form.Controls.Add(_legacySink);
+            _legacySink.CreateControl();
+
             if (_legacyPlayer is not null)
             {
-                _legacyPlayer.Mute = true;
-                _legacyPlayer.Volume = 0;
+                try
+                {
+                    _legacyPlayer.Hwnd = _legacySink.Handle;
+                    _legacyPlayer.Mute = true;
+                    _legacyPlayer.Volume = 0;
+                }
+                catch
+                {
+                }
             }
 
             _volume = _volumeTrackBar?.Value ?? 70;
@@ -109,7 +131,7 @@ internal static class Program
                 {
                     if (_currentChannelField.GetValue(_form) is Channel channel)
                     {
-                        StartChannel(channel, force: true);
+                        _ = SwitchChannelAsync(channel, force: true);
                     }
                 };
             }
@@ -119,21 +141,25 @@ internal static class Program
                 _volumeTrackBar.ValueChanged += (_, _) =>
                 {
                     _volume = _volumeTrackBar.Value;
-                    KeepLegacySilent();
-                    _ = SendCommandAsync("set_property", "volume", _volume);
+                    SuppressLegacyPlayback();
+                    _ = SendCommandWithRetryAsync(new object[] { "set_property", "volume", _volume });
                 };
             }
 
             _form.FormClosed += (_, _) => Dispose();
 
-            _pollTimer = new System.Windows.Forms.Timer { Interval = 120 };
+            // Start mpv once and keep it alive. Channel changes use IPC loadfile and
+            // never kill/relaunch the player, which makes switching much lighter.
+            EnsureMpvStarted();
+
+            _pollTimer = new System.Windows.Forms.Timer { Interval = 70 };
             _pollTimer.Tick += (_, _) => PollCurrentChannel();
             _pollTimer.Start();
         }
 
         private void PollCurrentChannel()
         {
-            KeepLegacySilent();
+            SuppressLegacyPlayback();
 
             if (_currentChannelField.GetValue(_form) is not Channel channel)
             {
@@ -146,26 +172,89 @@ internal static class Program
                 return;
             }
 
-            StartChannel(channel);
+            _activeKey = key;
+            _ = SwitchChannelAsync(channel);
         }
 
-        private void StartChannel(Channel channel, bool force = false)
+        private async Task SwitchChannelAsync(Channel channel, bool force = false)
         {
             var key = $"{channel.Name}|{channel.Url}";
-            if (!force && string.Equals(key, _activeKey, StringComparison.Ordinal))
+            if (!force && !string.Equals(key, _activeKey, StringComparison.Ordinal))
             {
-                return;
+                _activeKey = key;
             }
 
-            _activeKey = key;
+            var generation = Interlocked.Increment(ref _switchGeneration);
+            SetStatus("Αλλαγή καναλιού...");
+            SuppressLegacyPlayback();
+
+            await _switchGate.WaitAsync();
+            try
+            {
+                if (_disposed || generation != _switchGeneration)
+                {
+                    return;
+                }
+
+                if (!EnsureMpvStarted())
+                {
+                    return;
+                }
+
+                // EXACT Free-TV URL, verbatim. The same persistent mpv process simply
+                // replaces the currently loaded stream; no process restart occurs.
+                var loaded = await SendCommandWithRetryAsync(
+                    new object[] { "loadfile", channel.Url, "replace" },
+                    attempts: 18,
+                    connectTimeoutMs: 250);
+
+                if (!loaded || generation != _switchGeneration)
+                {
+                    if (!loaded)
+                    {
+                        SetStatus("Το mpv δεν απάντησε • δες data\\mpv.log");
+                    }
+                    return;
+                }
+
+                _paused = false;
+                await SendCommandWithRetryAsync(new object[] { "set_property", "pause", false }, 3, 200);
+                await SendCommandWithRetryAsync(new object[] { "set_property", "volume", _volume }, 3, 200);
+                await SendCommandWithRetryAsync(new object[] { "set_property", "mute", _muted }, 3, 200);
+
+                SafeUi(() =>
+                {
+                    if (_playPauseButton is not null) _playPauseButton.Text = "Ⅱ";
+                    if (_muteButton is not null) _muteButton.Text = _muted ? "🔇" : "🔊";
+                });
+
+                SetStatus("Αναπαραγωγή μέσω mpv • αυτούσιο URL Free-TV");
+            }
+            finally
+            {
+                _switchGate.Release();
+            }
+        }
+
+        private bool EnsureMpvStarted()
+        {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            if (_process is not null && !_process.HasExited)
+            {
+                return true;
+            }
+
             StopProcess();
-            KeepLegacySilent();
 
             var mpvPath = Path.Combine(AppContext.BaseDirectory, "player", "mpv.exe");
             if (!File.Exists(mpvPath))
             {
                 SetStatus("Λείπει το mpv.exe από το portable πακέτο.");
-                return;
+                return false;
             }
 
             try
@@ -174,8 +263,6 @@ internal static class Program
                 var logPath = Path.Combine(AppContext.BaseDirectory, "data", "mpv.log");
                 try { File.Delete(logPath); } catch { }
 
-                // mpv's --wid accepts a Win32 HWND. The stream URL below is passed
-                // as a separate argument and is NEVER rewritten or supplemented.
                 var hwnd = _videoHost.Handle.ToInt64();
                 _pipeName = $"dwrean-tv-mpv-{Guid.NewGuid():N}";
                 var pipePath = $@"\\.\pipe\{_pipeName}";
@@ -194,145 +281,140 @@ internal static class Program
                 psi.ArgumentList.Add("--no-terminal");
                 psi.ArgumentList.Add("--osc=no");
                 psi.ArgumentList.Add("--input-default-bindings=no");
-                psi.ArgumentList.Add("--force-window=yes");
-                psi.ArgumentList.Add("--keep-open=no");
+                psi.ArgumentList.Add("--idle=yes");
+                psi.ArgumentList.Add("--force-window=no");
+                psi.ArgumentList.Add("--keep-open=yes");
                 psi.ArgumentList.Add("--hwdec=auto-safe");
                 psi.ArgumentList.Add("--cache=yes");
-                psi.ArgumentList.Add("--demuxer-max-bytes=64MiB");
-                psi.ArgumentList.Add("--demuxer-readahead-secs=15");
+                psi.ArgumentList.Add("--demuxer-max-bytes=24MiB");
+                psi.ArgumentList.Add("--demuxer-readahead-secs=6");
                 psi.ArgumentList.Add($"--volume={_volume}");
                 psi.ArgumentList.Add($"--log-file={logPath}");
-                psi.ArgumentList.Add(channel.Url); // EXACT Free-TV URL, verbatim.
 
                 _process = new Process
                 {
                     StartInfo = psi,
                     EnableRaisingEvents = true
                 };
-                _process.Exited += (_, _) => SafeUi(() =>
+
+                var startedProcess = _process;
+                startedProcess.Exited += (_, _) => SafeUi(() =>
                 {
-                    if (!_disposed && _process is not null && _process.HasExited)
+                    if (_disposed || !ReferenceEquals(_process, startedProcess))
                     {
-                        if (_statusLabel is not null &&
-                            !_statusLabel.Text.Contains("Αναπαραγωγή", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _statusLabel.Text = "Το mpv δεν μπόρεσε να ανοίξει το stream • δες data\\mpv.log";
-                        }
-                        if (_playPauseButton is not null)
-                        {
-                            _playPauseButton.Text = "▶";
-                        }
+                        return;
                     }
+
+                    _activeKey = string.Empty;
+                    _pipeName = null;
+                    SetStatus("Ο mpv player τερματίστηκε. Θα γίνει αυτόματη επανεκκίνηση.");
+                    if (_playPauseButton is not null) _playPauseButton.Text = "▶";
                 });
 
-                if (!_process.Start())
+                if (!startedProcess.Start())
                 {
                     SetStatus("Δεν ήταν δυνατή η εκκίνηση του mpv.");
-                    return;
+                    return false;
                 }
 
-                _paused = false;
-                _muted = false;
-                SetStatus("Σύνδεση μέσω mpv • αυτούσιο URL Free-TV...");
-                if (_playPauseButton is not null) _playPauseButton.Text = "Ⅱ";
-                if (_muteButton is not null) _muteButton.Text = "🔊";
-
-                var expectedProcess = _process;
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay(2500);
-                    SafeUi(() =>
-                    {
-                        if (!_disposed && ReferenceEquals(_process, expectedProcess) &&
-                            expectedProcess is not null && !expectedProcess.HasExited)
-                        {
-                            SetStatus("Αναπαραγωγή μέσω mpv • αυτούσιο URL Free-TV");
-                        }
-                    });
-                });
+                return true;
             }
             catch (Exception ex)
             {
                 SetStatus($"Σφάλμα mpv: {ex.Message}");
+                return false;
             }
         }
 
         private void TogglePause()
         {
-            if (_process is null || _process.HasExited)
+            if (!EnsureMpvStarted())
             {
-                if (_currentChannelField.GetValue(_form) is Channel channel)
-                {
-                    StartChannel(channel, force: true);
-                }
                 return;
             }
 
             _paused = !_paused;
-            _ = SendCommandAsync("set_property", "pause", _paused);
+            _ = SendCommandWithRetryAsync(new object[] { "set_property", "pause", _paused });
             if (_playPauseButton is not null)
             {
                 _playPauseButton.Text = _paused ? "▶" : "Ⅱ";
             }
             SetStatus(_paused ? "Παύση" : "Αναπαραγωγή μέσω mpv • αυτούσιο URL Free-TV");
-            KeepLegacySilent();
+            SuppressLegacyPlayback();
         }
 
         private void ToggleMute()
         {
             _muted = !_muted;
-            _ = SendCommandAsync("set_property", "mute", _muted);
+            _ = SendCommandWithRetryAsync(new object[] { "set_property", "mute", _muted });
             if (_muteButton is not null)
             {
                 _muteButton.Text = _muted ? "🔇" : "🔊";
             }
-            KeepLegacySilent();
+            SuppressLegacyPlayback();
         }
 
-        private async Task SendCommandAsync(params object[] command)
+        private async Task<bool> SendCommandWithRetryAsync(
+            object[] command,
+            int attempts = 8,
+            int connectTimeoutMs = 220)
         {
-            var pipeName = _pipeName;
-            var process = _process;
-            if (string.IsNullOrWhiteSpace(pipeName) || process is null || process.HasExited)
+            for (var attempt = 0; attempt < attempts && !_disposed; attempt++)
             {
-                return;
-            }
-
-            try
-            {
-                using var pipe = new NamedPipeClientStream(
-                    ".",
-                    pipeName,
-                    PipeDirection.Out,
-                    PipeOptions.Asynchronous);
-                using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(700));
-                await pipe.ConnectAsync(timeout.Token);
-
-                using var writer = new StreamWriter(pipe, new UTF8Encoding(false))
+                var pipeName = _pipeName;
+                var process = _process;
+                if (string.IsNullOrWhiteSpace(pipeName) || process is null || process.HasExited)
                 {
-                    AutoFlush = true
-                };
+                    return false;
+                }
 
-                var payload = JsonSerializer.Serialize(new Dictionary<string, object[]>
+                try
                 {
-                    ["command"] = command
-                });
-                await writer.WriteLineAsync(payload);
+                    using var pipe = new NamedPipeClientStream(
+                        ".",
+                        pipeName,
+                        PipeDirection.Out,
+                        PipeOptions.Asynchronous);
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(connectTimeoutMs));
+                    await pipe.ConnectAsync(timeout.Token);
+
+                    using var writer = new StreamWriter(pipe, new UTF8Encoding(false))
+                    {
+                        AutoFlush = true
+                    };
+
+                    var payload = JsonSerializer.Serialize(new Dictionary<string, object[]>
+                    {
+                        ["command"] = command
+                    });
+                    await writer.WriteLineAsync(payload);
+                    return true;
+                }
+                catch
+                {
+                    await Task.Delay(80);
+                }
             }
-            catch
-            {
-                // IPC failure must not crash the TV application.
-            }
+
+            return false;
         }
 
-        private void KeepLegacySilent()
+        private void SuppressLegacyPlayback()
         {
             try
             {
-                if (_legacyPlayer is not null)
+                if (_legacyPlayer is null)
                 {
-                    _legacyPlayer.Mute = true;
-                    _legacyPlayer.Volume = 0;
+                    return;
+                }
+
+                _legacyPlayer.Mute = true;
+                _legacyPlayer.Volume = 0;
+                _legacyPlayer.Hwnd = _legacySink.Handle;
+
+                if (_legacyPlayer.IsPlaying)
+                {
+                    _legacyPlayer.Stop();
                 }
             }
             catch
@@ -356,7 +438,6 @@ internal static class Program
                 if (!process.HasExited)
                 {
                     process.Kill(entireProcessTree: true);
-                    process.WaitForExit(800);
                 }
             }
             catch
@@ -413,6 +494,8 @@ internal static class Program
             _pollTimer.Stop();
             _pollTimer.Dispose();
             StopProcess();
+            _switchGate.Dispose();
+            _legacySink.Dispose();
         }
     }
 
@@ -429,7 +512,8 @@ internal static class Program
             .Replace("0.2.0", CurrentVersion, StringComparison.Ordinal)
             .Replace("0.2.1", CurrentVersion, StringComparison.Ordinal)
             .Replace("0.2.2", CurrentVersion, StringComparison.Ordinal)
-            .Replace("0.2.3-test", CurrentVersion, StringComparison.Ordinal);
+            .Replace("0.2.3-test", CurrentVersion, StringComparison.Ordinal)
+            .Replace("0.2.4-mpv-test", CurrentVersion, StringComparison.Ordinal);
 
         foreach (Control child in root.Controls)
         {
