@@ -1,13 +1,5 @@
 # Changelog
 
-## v0.2.0 — portable package hotfix (31/08/2026)
-
-- Το portable build άλλαξε σε .NET single-file bundling για τα managed assemblies.
-- Τα `LibVLCSharp.dll` και `LibVLCSharp.WinForms.dll` ενσωματώνονται πλέον μέσα στο `dwrean.TV.exe`.
-- Προστέθηκε αυτόματος έλεγχος στο GitHub Actions ώστε το release να αποτυγχάνει αν εμφανιστεί ξανά loose `LibVLCSharp*.dll` στο portable πακέτο.
-- Τα native VideoLAN αρχεία παραμένουν εξωτερικά για αξιόπιστη φόρτωση του LibVLC.
-- Το όνομα του ZIP και η έκδοση παραμένουν v0.2.0 ώστε τα υπάρχοντα links λήψης να συνεχίσουν να λειτουργούν.
-
 ## v0.2.0
 
 - Προστέθηκε κανονικό icon στο `.exe` και στο παράθυρο της εφαρμογής.

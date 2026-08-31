@@ -25,29 +25,13 @@ jobs:
         run: dotnet restore src/DwreanTv/DwreanTv.csproj
 
       - name: Publish portable build
-        run: dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -o publish
+        run: dotnet publish src/DwreanTv/DwreanTv.csproj -c Release -r win-x64 --self-contained true -o publish
 
       - name: Remove unused VLC architectures
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force publish\libvlc\win-x86 -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force publish\libvlc\win-arm64 -ErrorAction SilentlyContinue
-
-      - name: Verify Smart App Control friendly package
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "publish\dwrean.TV.exe")) {
-            throw "dwrean.TV.exe was not created."
-          }
-
-          $looseLibVlcSharp = Get-ChildItem -Path publish -Recurse -File -Filter "LibVLCSharp*.dll" -ErrorAction SilentlyContinue
-          if ($looseLibVlcSharp) {
-            $looseLibVlcSharp | ForEach-Object { Write-Error "Unexpected loose managed VLC assembly: $($_.FullName)" }
-            throw "LibVLCSharp managed assemblies must be bundled inside dwrean.TV.exe."
-          }
-
-          Write-Host "OK: LibVLCSharp managed assemblies are bundled inside dwrean.TV.exe."
-          Write-Host "Native VideoLAN files remain external for reliable LibVLC loading."
 
       - name: Create portable ZIP
         shell: pwsh
@@ -70,7 +54,6 @@ jobs:
           gh release view v0.2.0 *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload v0.2.0 dwrean-tv-v0.2.0-portable-win-x64.zip --clobber
-            gh release edit v0.2.0 --title "dwrean Ελληνική Τηλεόραση v0.2.0" --notes-file RELEASE_NOTES.md --latest
           }
           else {
             gh release create v0.2.0 dwrean-tv-v0.2.0-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.2.0" --notes-file RELEASE_NOTES.md --latest
