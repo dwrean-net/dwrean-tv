@@ -13,7 +13,7 @@
     <PublishSingleFile>false</PublishSingleFile>
     <PublishReadyToRun>false</PublishReadyToRun>
     <ApplicationIcon>Assets\dwrean.ico</ApplicationIcon>
-    <Version>0.3.1-test</Version>
+    <Version>0.3.1</Version>
     <Authors>Κυριάκος Οικονομίδης / dwrean.net</Authors>
     <Product>dwrean Ελληνική Τηλεόραση</Product>
     <Description>Portable εφαρμογή για δωρεάν ελληνικά τηλεοπτικά κανάλια.</Description>
