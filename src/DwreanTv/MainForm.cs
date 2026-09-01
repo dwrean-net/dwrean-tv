@@ -1,17 +1,12 @@
 using System.Diagnostics;
 using DwreanTv.Models;
+using DwreanTv.Playback;
 using DwreanTv.Services;
-using LibVLCSharp.Shared;
-using LibVLCSharp.WinForms;
 
 namespace DwreanTv;
 
 public sealed class MainForm : Form
 {
-    private const string AppVersion = "0.2.0";
-    private const string DwreanUrl = "https://www.dwrean.net/";
-    private const string SourcePageUrl = "https://github.com/Free-TV/IPTV/blob/master/lists/greece.md";
-
     private readonly Color _background = Color.FromArgb(17, 19, 24);
     private readonly Color _panel = Color.FromArgb(25, 28, 35);
     private readonly Color _panelHover = Color.FromArgb(35, 39, 48);
@@ -22,15 +17,12 @@ public sealed class MainForm : Form
     private readonly ChannelService _channelService = new();
     private readonly SettingsService _settingsService = new();
     private readonly AppSettings _settings;
-
-    private readonly LibVLC _libVlc;
-    private readonly MediaPlayer _mediaPlayer;
-    private Media? _currentMedia;
+    private readonly MpvPlayer _player;
 
     private readonly Panel _headerPanel;
     private readonly Panel _sidebarPanel;
     private readonly Panel _controlsPanel;
-    private readonly VideoView _videoView;
+    private readonly Panel _videoHost;
     private readonly FlowLayoutPanel _channelFlow;
     private readonly TextBox _searchBox;
     private readonly ComboBox _categoryCombo;
@@ -47,6 +39,7 @@ public sealed class MainForm : Form
 
     private List<Channel> _allChannels = new();
     private Channel? _currentChannel;
+    private CancellationTokenSource? _playCts;
     private bool _showFavoritesOnly;
     private bool _isFullScreen;
     private FormBorderStyle _previousBorderStyle;
@@ -54,7 +47,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "dwrean Ελληνική Τηλεόραση";
+        Text = AppInfo.Name;
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1080, 700);
         Size = new Size(1360, 820);
@@ -63,29 +56,16 @@ public sealed class MainForm : Form
         Font = new Font("Segoe UI", 9F);
         KeyPreview = true;
 
-        try
-        {
-            var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-            if (appIcon is not null)
-            {
-                Icon = appIcon;
-            }
-        }
-        catch
-        {
-            // The application remains usable even if Windows cannot read the executable icon.
-        }
-
+        TryApplyExecutableIcon();
         _settings = _settingsService.Load();
 
-        _libVlc = new LibVLC("--no-video-title-show", "--quiet");
-        _mediaPlayer = new MediaPlayer(_libVlc)
-        {
-            Volume = Math.Clamp(_settings.Volume, 0, 100)
-        };
-
         _headerPanel = BuildHeader();
-        _sidebarPanel = BuildSidebar(out _searchBox, out _categoryCombo, out _favoritesFilterButton, out _refreshButton, out _channelFlow);
+        _sidebarPanel = BuildSidebar(
+            out _searchBox,
+            out _categoryCombo,
+            out _favoritesFilterButton,
+            out _refreshButton,
+            out _channelFlow);
         _controlsPanel = BuildControls(
             out _playPauseButton,
             out _muteButton,
@@ -96,33 +76,25 @@ public sealed class MainForm : Form
             out _nowPlayingLabel,
             out _statusLabel);
 
-        _videoView = new VideoView
+        _videoHost = new Panel
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.Black,
-            MediaPlayer = _mediaPlayer
+            BackColor = Color.Black
         };
-
-        var videoHost = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.Black,
-            Padding = new Padding(0)
-        };
-        videoHost.Controls.Add(_videoView);
 
         var body = new Panel
         {
             Dock = DockStyle.Fill,
             BackColor = _background
         };
-        body.Controls.Add(videoHost);
+        body.Controls.Add(_videoHost);
         body.Controls.Add(_sidebarPanel);
 
         Controls.Add(body);
         Controls.Add(_controlsPanel);
         Controls.Add(_headerPanel);
 
+        _player = new MpvPlayer(_videoHost, _settings.Volume);
         WireEvents();
     }
 
@@ -134,15 +106,23 @@ public sealed class MainForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        _settings.Volume = _mediaPlayer.Volume;
+        _playCts?.Cancel();
+        _playCts?.Dispose();
+        _settings.Volume = _volumeTrackBar.Value;
         _settingsService.Save(_settings);
-
-        _mediaPlayer.Stop();
-        _currentMedia?.Dispose();
-        _mediaPlayer.Dispose();
-        _libVlc.Dispose();
-
+        _player.Dispose();
         base.OnFormClosed(e);
+    }
+
+    private void TryApplyExecutableIcon()
+    {
+        try
+        {
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        }
+        catch
+        {
+        }
     }
 
     private Panel BuildHeader()
@@ -150,16 +130,15 @@ public sealed class MainForm : Form
         var panel = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 82,
-            BackColor = Color.FromArgb(20, 22, 28),
-            Padding = new Padding(20, 0, 20, 0)
+            Height = 90,
+            BackColor = Color.FromArgb(20, 22, 28)
         };
 
         var appLogo = new PictureBox
         {
-            Width = 48,
-            Height = 48,
-            Location = new Point(20, 17),
+            Width = 56,
+            Height = 56,
+            Location = new Point(22, 17),
             SizeMode = PictureBoxSizeMode.Zoom,
             BackColor = Color.Transparent
         };
@@ -170,7 +149,6 @@ public sealed class MainForm : Form
         }
         catch
         {
-            // Keep an empty logo box if the icon cannot be converted to a bitmap.
         }
 
         var dwreanLabel = new Label
@@ -179,7 +157,7 @@ public sealed class MainForm : Form
             ForeColor = _accent,
             Font = new Font("Segoe UI Black", 17F, FontStyle.Bold),
             AutoSize = true,
-            Location = new Point(79, 13)
+            Location = new Point(96, 14)
         };
 
         var title = new Label
@@ -188,7 +166,7 @@ public sealed class MainForm : Form
             ForeColor = _text,
             Font = new Font("Segoe UI Semibold", 17F, FontStyle.Bold),
             AutoSize = true,
-            Location = new Point(161, 13)
+            Location = new Point(207, 14)
         };
 
         var subtitle = new Label
@@ -197,7 +175,7 @@ public sealed class MainForm : Form
             ForeColor = _muted,
             Font = new Font("Segoe UI", 8.8F),
             AutoSize = true,
-            Location = new Point(81, 48)
+            Location = new Point(98, 51)
         };
 
         var siteLink = new LinkLabel
@@ -210,7 +188,7 @@ public sealed class MainForm : Form
             Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
-        siteLink.LinkClicked += (_, _) => OpenUrl(DwreanUrl);
+        siteLink.LinkClicked += (_, _) => OpenUrl(AppInfo.WebsiteUrl);
 
         var aboutButton = new Button
         {
@@ -229,9 +207,9 @@ public sealed class MainForm : Form
         void PositionRightControls()
         {
             aboutButton.Left = panel.ClientSize.Width - aboutButton.Width - 20;
-            aboutButton.Top = 24;
-            siteLink.Left = aboutButton.Left - siteLink.Width - 22;
-            siteLink.Top = 32;
+            aboutButton.Top = 28;
+            siteLink.Left = aboutButton.Left - siteLink.Width - 24;
+            siteLink.Top = 36;
         }
 
         panel.Resize += (_, _) => PositionRightControls();
@@ -258,7 +236,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Left,
             Width = 350,
             BackColor = _panel,
-            Padding = new Padding(16)
+            Padding = new Padding(14)
         };
 
         var filters = new Panel
@@ -320,7 +298,7 @@ public sealed class MainForm : Form
 
         var footerLink = new LinkLabel
         {
-            Text = $"dwrean.net  •  v{AppVersion}",
+            Text = $"dwrean.net  •  v{AppInfo.Version}",
             LinkColor = Color.FromArgb(255, 103, 103),
             ActiveLinkColor = Color.White,
             VisitedLinkColor = Color.FromArgb(255, 103, 103),
@@ -329,7 +307,7 @@ public sealed class MainForm : Form
             Cursor = Cursors.Hand,
             Location = new Point(8, 35)
         };
-        footerLink.LinkClicked += (_, _) => OpenUrl(DwreanUrl);
+        footerLink.LinkClicked += (_, _) => OpenUrl(AppInfo.WebsiteUrl);
 
         footer.Controls.Add(creator);
         footer.Controls.Add(footerLink);
@@ -343,6 +321,7 @@ public sealed class MainForm : Form
             BackColor = _panel,
             Padding = new Padding(0, 4, 0, 0)
         };
+        channelFlow.Resize += (_, _) => ResizeChannelCards();
 
         panel.Controls.Add(channelFlow);
         panel.Controls.Add(footer);
@@ -364,8 +343,7 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Bottom,
             Height = 84,
-            BackColor = Color.FromArgb(20, 22, 28),
-            Padding = new Padding(18, 10, 18, 10)
+            BackColor = Color.FromArgb(20, 22, 28)
         };
 
         playPauseButton = CreateControlButton("▶", 18, 20, 48);
@@ -416,39 +394,33 @@ public sealed class MainForm : Form
         return panel;
     }
 
-    private Button CreateSmallButton(string text, int x, int y, int width)
+    private Button CreateSmallButton(string text, int x, int y, int width) => new()
     {
-        return new Button
-        {
-            Text = text,
-            FlatStyle = FlatStyle.Flat,
-            FlatAppearance = { BorderSize = 0 },
-            BackColor = Color.FromArgb(43, 47, 57),
-            ForeColor = _text,
-            Cursor = Cursors.Hand,
-            Location = new Point(x, y),
-            Width = width,
-            Height = 34,
-            Font = new Font("Segoe UI Semibold", 9F)
-        };
-    }
+        Text = text,
+        FlatStyle = FlatStyle.Flat,
+        FlatAppearance = { BorderSize = 0 },
+        BackColor = Color.FromArgb(43, 47, 57),
+        ForeColor = _text,
+        Cursor = Cursors.Hand,
+        Location = new Point(x, y),
+        Width = width,
+        Height = 34,
+        Font = new Font("Segoe UI Semibold", 9F)
+    };
 
-    private Button CreateControlButton(string text, int x, int y, int size)
+    private Button CreateControlButton(string text, int x, int y, int size) => new()
     {
-        return new Button
-        {
-            Text = text,
-            FlatStyle = FlatStyle.Flat,
-            FlatAppearance = { BorderSize = 0 },
-            BackColor = Color.FromArgb(43, 47, 57),
-            ForeColor = _text,
-            Cursor = Cursors.Hand,
-            Location = new Point(x, y),
-            Width = size,
-            Height = 42,
-            Font = new Font("Segoe UI Symbol", 12F, FontStyle.Bold)
-        };
-    }
+        Text = text,
+        FlatStyle = FlatStyle.Flat,
+        FlatAppearance = { BorderSize = 0 },
+        BackColor = Color.FromArgb(43, 47, 57),
+        ForeColor = _text,
+        Cursor = Cursors.Hand,
+        Location = new Point(x, y),
+        Width = size,
+        Height = 42,
+        Font = new Font("Segoe UI Symbol", 12F, FontStyle.Bold)
+    };
 
     private void WireEvents()
     {
@@ -465,34 +437,28 @@ public sealed class MainForm : Form
 
         _refreshButton.Click += async (_, _) => await LoadChannelsAsync(true);
 
-        _playPauseButton.Click += (_, _) =>
+        _playPauseButton.Click += async (_, _) =>
         {
-            if (_currentChannel is null) return;
+            if (_currentChannel is null)
+            {
+                return;
+            }
 
-            if (_mediaPlayer.IsPlaying)
-            {
-                _mediaPlayer.Pause();
-            }
-            else if (_mediaPlayer.Media is not null)
-            {
-                _mediaPlayer.Play();
-            }
-            else
-            {
-                PlayChannel(_currentChannel);
-            }
+            await _player.TogglePauseAsync();
+            _playPauseButton.Text = _player.IsPaused ? "▶" : "Ⅱ";
+            _statusLabel.Text = _player.IsPaused ? "Παύση" : "Αναπαραγωγή σε εξέλιξη";
         };
 
-        _muteButton.Click += (_, _) =>
+        _muteButton.Click += async (_, _) =>
         {
-            _mediaPlayer.Mute = !_mediaPlayer.Mute;
-            _muteButton.Text = _mediaPlayer.Mute ? "🔇" : "🔊";
+            await _player.ToggleMuteAsync();
+            _muteButton.Text = _player.IsMuted ? "🔇" : "🔊";
         };
 
-        _volumeTrackBar.ValueChanged += (_, _) =>
+        _volumeTrackBar.ValueChanged += async (_, _) =>
         {
-            _mediaPlayer.Volume = _volumeTrackBar.Value;
             _settings.Volume = _volumeTrackBar.Value;
+            await _player.SetVolumeAsync(_volumeTrackBar.Value);
         };
 
         _favoriteCurrentButton.Click += (_, _) =>
@@ -503,11 +469,11 @@ public sealed class MainForm : Form
             }
         };
 
-        _retryButton.Click += (_, _) =>
+        _retryButton.Click += async (_, _) =>
         {
             if (_currentChannel is not null)
             {
-                PlayChannel(_currentChannel);
+                await PlayChannelAsync(_currentChannel);
             }
         };
 
@@ -526,26 +492,6 @@ public sealed class MainForm : Form
                 e.Handled = true;
             }
         };
-
-        _mediaPlayer.Playing += (_, _) => SafeUi(() =>
-        {
-            _playPauseButton.Text = "Ⅱ";
-            _statusLabel.Text = "Αναπαραγωγή σε εξέλιξη";
-        });
-
-        _mediaPlayer.Paused += (_, _) => SafeUi(() =>
-        {
-            _playPauseButton.Text = "▶";
-            _statusLabel.Text = "Παύση";
-        });
-
-        _mediaPlayer.Stopped += (_, _) => SafeUi(() => _playPauseButton.Text = "▶");
-
-        _mediaPlayer.EncounteredError += (_, _) => SafeUi(() =>
-        {
-            _playPauseButton.Text = "▶";
-            _statusLabel.Text = "Το κανάλι δεν είναι διαθέσιμο. Πάτησε ↻ για νέα προσπάθεια.";
-        });
     }
 
     private async Task LoadChannelsAsync(bool forceRefresh = false)
@@ -561,9 +507,8 @@ public sealed class MainForm : Form
             PopulateCategories();
             RefreshChannelCards();
 
-            var source = result.FromWeb ? "online" : "από το τελευταίο αποθηκευμένο αντίγραφο";
             var updated = result.UpdatedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—";
-            _statusLabel.Text = $"{_allChannels.Count} τηλεοπτικά κανάλια • λίστα {source} • ενημέρωση {updated}";
+            _statusLabel.Text = $"{_allChannels.Count} τηλεοπτικά κανάλια • {result.SourceDescription} • {updated}";
 
             if (_currentChannel is null && !string.IsNullOrWhiteSpace(_settings.LastChannelKey))
             {
@@ -572,7 +517,7 @@ public sealed class MainForm : Form
 
                 if (last is not null)
                 {
-                    PlayChannel(last);
+                    await PlayChannelAsync(last);
                 }
             }
         }
@@ -581,7 +526,7 @@ public sealed class MainForm : Form
             _statusLabel.Text = "Δεν ήταν δυνατή η φόρτωση της λίστας καναλιών.";
             MessageBox.Show(
                 $"Δεν ήταν δυνατή η φόρτωση των τηλεοπτικών καναλιών.\n\n{ex.Message}",
-                "dwrean Ελληνική Τηλεόραση",
+                AppInfo.Name,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
@@ -638,13 +583,43 @@ public sealed class MainForm : Form
                 Text = _showFavoritesOnly ? "Δεν έχεις προσθέσει αγαπημένα κανάλια." : "Δεν βρέθηκαν κανάλια.",
                 ForeColor = _muted,
                 AutoSize = false,
-                Width = 300,
                 Height = 70,
                 TextAlign = ContentAlignment.MiddleCenter
             });
         }
 
+        ResizeChannelCards();
         _channelFlow.ResumeLayout();
+    }
+
+    private void ResizeChannelCards()
+    {
+        if (_channelFlow is null)
+        {
+            return;
+        }
+
+        var width = Math.Max(260, _channelFlow.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 10);
+        foreach (Control control in _channelFlow.Controls)
+        {
+            control.Width = width;
+            if (control is not Panel card)
+            {
+                continue;
+            }
+
+            var star = card.Controls.OfType<Button>().FirstOrDefault();
+            if (star is null)
+            {
+                continue;
+            }
+
+            star.Left = card.ClientSize.Width - star.Width - 8;
+            foreach (var label in card.Controls.OfType<Label>())
+            {
+                label.Width = Math.Max(90, star.Left - label.Left - 6);
+            }
+        }
     }
 
     private Control CreateChannelCard(Channel channel)
@@ -654,7 +629,7 @@ public sealed class MainForm : Form
             Width = 305,
             Height = 64,
             Margin = new Padding(0, 0, 0, 7),
-            BackColor = _currentChannel == channel ? Color.FromArgb(52, 38, 40) : Color.FromArgb(31, 35, 43),
+            BackColor = IsCurrent(channel) ? Color.FromArgb(52, 38, 40) : Color.FromArgb(31, 35, 43),
             Cursor = Cursors.Hand,
             Tag = channel
         };
@@ -672,14 +647,7 @@ public sealed class MainForm : Form
 
         if (!string.IsNullOrWhiteSpace(channel.LogoUrl))
         {
-            try
-            {
-                logo.ImageLocation = channel.LogoUrl;
-            }
-            catch
-            {
-                // A missing logo must not affect playback.
-            }
+            logo.ImageLocation = channel.LogoUrl;
         }
 
         var name = new Label
@@ -697,10 +665,9 @@ public sealed class MainForm : Form
             Tag = channel
         };
 
-        var metaText = channel.GeoBlocked ? $"{channel.Category} • Geo" : channel.Category;
         var meta = new Label
         {
-            Text = metaText,
+            Text = channel.GeoBlocked ? $"{channel.Category} • Geo" : channel.Category,
             ForeColor = _muted,
             Font = new Font("Segoe UI", 7.8F),
             AutoEllipsis = true,
@@ -728,21 +695,27 @@ public sealed class MainForm : Form
             Tag = channel
         };
 
-        void playHandler(object? _, EventArgs __) => PlayChannel(channel);
-        card.Click += playHandler;
-        logo.Click += playHandler;
-        name.Click += playHandler;
-        meta.Click += playHandler;
+        async void PlayHandler(object? _, EventArgs __) => await PlayChannelAsync(channel);
+        card.Click += PlayHandler;
+        logo.Click += PlayHandler;
+        name.Click += PlayHandler;
+        meta.Click += PlayHandler;
 
         star.Click += (_, _) => ToggleFavorite(channel);
 
         card.MouseEnter += (_, _) =>
         {
-            if (_currentChannel != channel) card.BackColor = _panelHover;
+            if (!IsCurrent(channel))
+            {
+                card.BackColor = _panelHover;
+            }
         };
         card.MouseLeave += (_, _) =>
         {
-            if (_currentChannel != channel) card.BackColor = Color.FromArgb(31, 35, 43);
+            if (!IsCurrent(channel))
+            {
+                card.BackColor = Color.FromArgb(31, 35, 43);
+            }
         };
 
         card.Controls.Add(logo);
@@ -752,8 +725,13 @@ public sealed class MainForm : Form
         return card;
     }
 
-    private void PlayChannel(Channel channel)
+    private async Task PlayChannelAsync(Channel channel)
     {
+        _playCts?.Cancel();
+        _playCts?.Dispose();
+        _playCts = new CancellationTokenSource();
+        var token = _playCts.Token;
+
         _currentChannel = channel;
         _settings.LastChannelKey = SettingsService.GetChannelKey(channel);
         _settingsService.Save(_settings);
@@ -761,28 +739,45 @@ public sealed class MainForm : Form
         RefreshChannelCards();
 
         _nowPlayingLabel.Text = channel.Name;
+        _statusLabel.Text = "Αλλαγή καναλιού...";
+        _playPauseButton.Text = "▶";
 
         try
         {
-            _mediaPlayer.Stop();
-            _currentMedia?.Dispose();
-            _currentMedia = new Media(_libVlc, new Uri(channel.Url));
-            _currentMedia.AddOption(":network-caching=1800");
-            _currentMedia.AddOption(":live-caching=1800");
-            _mediaPlayer.Play(_currentMedia);
-            _statusLabel.Text = "Σύνδεση με το κανάλι...";
+            var started = await _player.PlayAsync(channel.Url, token);
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (started)
+            {
+                _playPauseButton.Text = "Ⅱ";
+                _statusLabel.Text = "Αναπαραγωγή σε εξέλιξη";
+            }
+            else
+            {
+                _statusLabel.Text = "Το κανάλι δεν ξεκίνησε. Πάτησε ↻ για νέα προσπάθεια.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch
         {
-            _playPauseButton.Text = "▶";
-            _statusLabel.Text = "Το κανάλι δεν είναι διαθέσιμο. Πάτησε ↻ για νέα προσπάθεια.";
+            if (!token.IsCancellationRequested)
+            {
+                _statusLabel.Text = "Το κανάλι δεν ξεκίνησε. Πάτησε ↻ για νέα προσπάθεια.";
+            }
         }
     }
 
-    private bool IsFavorite(Channel channel)
-    {
-        return _settings.FavoriteKeys.Contains(SettingsService.GetChannelKey(channel));
-    }
+    private bool IsCurrent(Channel channel) =>
+        _currentChannel is not null &&
+        string.Equals(SettingsService.GetChannelKey(_currentChannel), SettingsService.GetChannelKey(channel), StringComparison.OrdinalIgnoreCase);
+
+    private bool IsFavorite(Channel channel) =>
+        _settings.FavoriteKeys.Contains(SettingsService.GetChannelKey(channel));
 
     private void ToggleFavorite(Channel channel)
     {
@@ -834,7 +829,7 @@ public sealed class MainForm : Form
     {
         using var dialog = new Form
         {
-            Text = "Σχετικά με το dwrean Ελληνική Τηλεόραση",
+            Text = $"Σχετικά με το {AppInfo.Name}",
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -862,7 +857,7 @@ public sealed class MainForm : Form
 
         var title = new Label
         {
-            Text = "dwrean Ελληνική Τηλεόραση",
+            Text = AppInfo.Name,
             ForeColor = _text,
             Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold),
             AutoSize = true,
@@ -871,7 +866,7 @@ public sealed class MainForm : Form
 
         var version = new Label
         {
-            Text = $"Έκδοση {AppVersion} • Portable για Windows 64-bit",
+            Text = $"Έκδοση {AppInfo.Version} • Portable για Windows 64-bit",
             ForeColor = _muted,
             AutoSize = true,
             Location = new Point(100, 57)
@@ -894,7 +889,7 @@ public sealed class MainForm : Form
             Location = new Point(26, 147)
         };
 
-        var site = CreateDialogLink("dwrean.net", 99, 147, DwreanUrl);
+        var site = CreateDialogLink("dwrean.net", 99, 147, AppInfo.WebsiteUrl);
 
         var sourceCaption = new Label
         {
@@ -904,7 +899,7 @@ public sealed class MainForm : Form
             Location = new Point(26, 180)
         };
 
-        var source = CreateDialogLink("Free-TV / IPTV – Greece", 117, 180, SourcePageUrl);
+        var source = CreateDialogLink("Free-TV / IPTV – Greece", 117, 180, AppInfo.SourcePageUrl);
 
         var info = new Label
         {
@@ -966,21 +961,6 @@ public sealed class MainForm : Form
         }
         catch
         {
-            // External links are optional and must never interrupt TV playback.
-        }
-    }
-
-    private void SafeUi(Action action)
-    {
-        if (IsDisposed) return;
-
-        if (InvokeRequired)
-        {
-            BeginInvoke(action);
-        }
-        else
-        {
-            action();
         }
     }
 }
