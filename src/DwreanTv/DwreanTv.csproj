@@ -13,15 +13,10 @@
     <PublishSingleFile>false</PublishSingleFile>
     <PublishReadyToRun>false</PublishReadyToRun>
     <ApplicationIcon>Assets\dwrean.ico</ApplicationIcon>
-    <Version>0.3.0</Version>
+    <Version>0.3.1-test</Version>
     <Authors>Κυριάκος Οικονομίδης / dwrean.net</Authors>
     <Product>dwrean Ελληνική Τηλεόραση</Product>
     <Description>Portable εφαρμογή για δωρεάν ελληνικά τηλεοπτικά κανάλια.</Description>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="LibVLCSharp.WinForms" Version="3.10.1" />
-    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1" />
-  </ItemGroup>
 
 </Project>
