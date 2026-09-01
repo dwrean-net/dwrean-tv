@@ -21,13 +21,6 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Set stable version
-        shell: pwsh
-        run: |
-          $program = Get-Content "src\DwreanTv\Program.cs" -Raw
-          $program = $program.Replace('0.2.5-mpv-test', '0.3.0')
-          Set-Content "src\DwreanTv\Program.cs" $program -Encoding UTF8
-
       - name: Restore
         run: dotnet restore src/DwreanTv/DwreanTv.csproj
 
@@ -56,21 +49,15 @@ jobs:
           Copy-Item "$($mpv.Directory.FullName)\*" "publish\player\" -Recurse -Force
           if (-not (Test-Path "publish\player\mpv.exe")) { throw "mpv.exe was not bundled" }
 
-      - name: Remove unused VLC architectures
-        shell: pwsh
-        run: |
-          Remove-Item -Recurse -Force publish\libvlc\win-x86 -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force publish\libvlc\win-arm64 -ErrorAction SilentlyContinue
-
       - name: Create portable ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-v0.3.0-portable-win-x64.zip -Force
+          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-v0.3.1-portable-win-x64.zip -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-v0.3.0-portable-win-x64
+          name: dwrean-tv-v0.3.1-portable-win-x64
           path: publish
           if-no-files-found: error
           compression-level: 9
@@ -80,10 +67,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view v0.3.0 *> $null
+          gh release view v0.3.1 *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload v0.3.0 dwrean-tv-v0.3.0-portable-win-x64.zip --clobber
+            gh release upload v0.3.1 dwrean-tv-v0.3.1-portable-win-x64.zip --clobber
           }
           else {
-            gh release create v0.3.0 dwrean-tv-v0.3.0-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.3.0" --notes "Νέα σταθερή έκδοση με βελτιωμένη αναπαραγωγή ελληνικών τηλεοπτικών καναλιών, πιο ομαλή αλλαγή καναλιών και ενημερωμένη λίστα Free-TV/IPTV. Portable για Windows 10/11 64-bit." --latest
+            gh release create v0.3.1 dwrean-tv-v0.3.1-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.3.1" --notes "Σταθερή έκδοση με καθαρό mpv-only playback, ομαλότερη εναλλαγή καναλιών και μικρότερο πακέτο χωρίς περιττές VLC εξαρτήσεις. Portable για Windows 10/11 64-bit." --latest
           }
