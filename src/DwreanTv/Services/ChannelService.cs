@@ -28,7 +28,7 @@ public sealed class ChannelService
     public ChannelService()
     {
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.3.0");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("dwrean-tv/0.3.1");
 
         var dataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
         Directory.CreateDirectory(dataDirectory);
