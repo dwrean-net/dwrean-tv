@@ -15,6 +15,7 @@ internal sealed class MpvPlayer : IDisposable
     private bool _muted;
     private bool _paused;
     private int _volume;
+    private long _nextRequestId;
     private bool _disposed;
 
     public MpvPlayer(Control videoHost, int initialVolume)
@@ -38,22 +39,19 @@ internal sealed class MpvPlayer : IDisposable
                 return false;
             }
 
-            // A clean stop before loadfile is important for live DASH/HLS streams.
-            // It releases the previous demuxer before the next channel is attached.
-            await SendCommandAsync(new object[] { "stop" }, 700, cancellationToken, allowFailure: true);
-            await Task.Delay(60, cancellationToken);
-
-            if (!await SendCommandAsync(new object[] { "loadfile", url, "replace" }, 1200, cancellationToken))
+            if (!await PrepareForNextStreamAsync(cancellationToken))
             {
-                // If mpv stopped responding while tearing down the previous stream,
-                // restart the engine once and retry the exact same Free-TV URL.
                 RestartProcess();
                 if (!EnsureStarted())
                 {
                     return false;
                 }
+            }
 
-                if (!await SendCommandAsync(new object[] { "loadfile", url, "replace" }, 1600, cancellationToken))
+            if (!await LoadAndConfirmAsync(url, cancellationToken))
+            {
+                RestartProcess();
+                if (!EnsureStarted() || !await LoadAndConfirmAsync(url, cancellationToken))
                 {
                     return false;
                 }
@@ -71,32 +69,94 @@ internal sealed class MpvPlayer : IDisposable
         }
     }
 
-    public async Task TogglePauseAsync()
+    public Task TogglePauseAsync() => RunSimpleCommandAsync(async () =>
     {
         _paused = !_paused;
-        await SendSimpleCommandAsync(new object[] { "set_property", "pause", _paused });
-    }
+        await SendCommandAsync(new object[] { "set_property", "pause", _paused }, 500, CancellationToken.None, allowFailure: true);
+    });
 
-    public async Task ToggleMuteAsync()
+    public Task ToggleMuteAsync() => RunSimpleCommandAsync(async () =>
     {
         _muted = !_muted;
-        await SendSimpleCommandAsync(new object[] { "set_property", "mute", _muted });
-    }
+        await SendCommandAsync(new object[] { "set_property", "mute", _muted }, 500, CancellationToken.None, allowFailure: true);
+    });
 
-    public async Task SetVolumeAsync(int volume)
+    public Task SetVolumeAsync(int volume) => RunSimpleCommandAsync(async () =>
     {
         _volume = Math.Clamp(volume, 0, 100);
-        await SendSimpleCommandAsync(new object[] { "set_property", "volume", _volume });
+        await SendCommandAsync(new object[] { "set_property", "volume", _volume }, 500, CancellationToken.None, allowFailure: true);
+    });
+
+    private async Task RunSimpleCommandAsync(Func<Task> command)
+    {
+        await _commandGate.WaitAsync();
+        try
+        {
+            if (_disposed || !EnsureStarted())
+            {
+                return;
+            }
+
+            await command();
+        }
+        finally
+        {
+            _commandGate.Release();
+        }
     }
 
-    private async Task SendSimpleCommandAsync(object[] command)
+    private async Task<bool> PrepareForNextStreamAsync(CancellationToken cancellationToken)
     {
-        if (_disposed || !EnsureStarted())
+        var idle = await GetBooleanPropertyAsync("idle-active", 400, cancellationToken);
+        if (idle is true)
         {
-            return;
+            return true;
         }
 
-        await SendCommandAsync(command, 500, CancellationToken.None, allowFailure: true);
+        await SendCommandAsync(new object[] { "stop" }, 700, cancellationToken, allowFailure: true);
+
+        var deadline = Environment.TickCount64 + 1200;
+        while (Environment.TickCount64 < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            idle = await GetBooleanPropertyAsync("idle-active", 300, cancellationToken);
+            if (idle is true)
+            {
+                return true;
+            }
+
+            await Task.Delay(60, cancellationToken);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> LoadAndConfirmAsync(string url, CancellationToken cancellationToken)
+    {
+        if (!await SendCommandAsync(new object[] { "loadfile", url, "replace" }, 1200, cancellationToken))
+        {
+            return false;
+        }
+
+        // mpv documents that loadfile returns before the old file is fully stopped and
+        // before the new one actually starts loading. Confirm that the player has left
+        // its idle state before reporting a successful channel switch.
+        var deadline = Environment.TickCount64 + 1800;
+        while (Environment.TickCount64 < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var idle = await GetBooleanPropertyAsync("idle-active", 300, cancellationToken);
+            if (idle is false)
+            {
+                return true;
+            }
+
+            await Task.Delay(60, cancellationToken);
+        }
+
+        return false;
     }
 
     private bool EnsureStarted()
@@ -161,18 +221,52 @@ internal sealed class MpvPlayer : IDisposable
         }
     }
 
+    private async Task<bool?> GetBooleanPropertyAsync(
+        string propertyName,
+        int timeoutMs,
+        CancellationToken cancellationToken)
+    {
+        var response = await SendRequestAsync(
+            new object[] { "get_property", propertyName },
+            timeoutMs,
+            cancellationToken);
+
+        if (!response.Success || response.Data is not JsonElement data)
+        {
+            return null;
+        }
+
+        return data.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
     private async Task<bool> SendCommandAsync(
         object[] command,
         int timeoutMs,
         CancellationToken cancellationToken,
         bool allowFailure = false)
     {
+        var response = await SendRequestAsync(command, timeoutMs, cancellationToken);
+        return response.Success || allowFailure;
+    }
+
+    private async Task<IpcResponse> SendRequestAsync(
+        object[] command,
+        int timeoutMs,
+        CancellationToken cancellationToken)
+    {
         var pipeName = _pipeName;
         var process = _process;
         if (string.IsNullOrWhiteSpace(pipeName) || process is null || process.HasExited)
         {
-            return allowFailure;
+            return IpcResponse.Failed;
         }
+
+        var requestId = Interlocked.Increment(ref _nextRequestId);
 
         try
         {
@@ -192,37 +286,53 @@ internal sealed class MpvPlayer : IDisposable
             };
             using var reader = new StreamReader(pipe, new UTF8Encoding(false), leaveOpen: true);
 
-            var payload = JsonSerializer.Serialize(new { command });
+            var payload = JsonSerializer.Serialize(new { command, request_id = requestId });
             await writer.WriteLineAsync(payload.AsMemory(), timeout.Token);
 
-            var responseLine = await reader.ReadLineAsync(timeout.Token);
-            if (string.IsNullOrWhiteSpace(responseLine))
+            while (true)
             {
-                return allowFailure;
-            }
+                var responseLine = await reader.ReadLineAsync(timeout.Token);
+                if (string.IsNullOrWhiteSpace(responseLine))
+                {
+                    return IpcResponse.Failed;
+                }
 
-            using var response = JsonDocument.Parse(responseLine);
-            if (response.RootElement.TryGetProperty("error", out var error))
-            {
-                return string.Equals(error.GetString(), "success", StringComparison.OrdinalIgnoreCase) || allowFailure;
-            }
+                using var response = JsonDocument.Parse(responseLine);
+                var root = response.RootElement;
 
-            return true;
+                // IPC connections can also receive event messages. Ignore everything
+                // until the response carrying our request_id arrives.
+                if (!root.TryGetProperty("request_id", out var responseId) ||
+                    responseId.ValueKind != JsonValueKind.Number ||
+                    responseId.GetInt64() != requestId)
+                {
+                    continue;
+                }
+
+                if (!root.TryGetProperty("error", out var error) ||
+                    !string.Equals(error.GetString(), "success", StringComparison.OrdinalIgnoreCase))
+                {
+                    return IpcResponse.Failed;
+                }
+
+                JsonElement? data = root.TryGetProperty("data", out var dataElement)
+                    ? dataElement.Clone()
+                    : null;
+
+                return new IpcResponse(true, data);
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return allowFailure;
+            return IpcResponse.Failed;
         }
         catch
         {
-            return allowFailure;
+            return IpcResponse.Failed;
         }
     }
 
-    private void RestartProcess()
-    {
-        StopProcess();
-    }
+    private void RestartProcess() => StopProcess();
 
     private void StopProcess()
     {
@@ -252,10 +362,7 @@ internal sealed class MpvPlayer : IDisposable
         }
     }
 
-    private void ThrowIfDisposed()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-    }
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     public void Dispose()
     {
@@ -267,5 +374,10 @@ internal sealed class MpvPlayer : IDisposable
         _disposed = true;
         StopProcess();
         _commandGate.Dispose();
+    }
+
+    private readonly record struct IpcResponse(bool Success, JsonElement? Data)
+    {
+        public static IpcResponse Failed => new(false, null);
     }
 }
