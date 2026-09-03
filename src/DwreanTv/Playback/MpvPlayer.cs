@@ -41,6 +41,7 @@ internal sealed class MpvPlayer : IDisposable
 
             if (!await PrepareForNextStreamAsync(cancellationToken))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 RestartProcess();
                 if (!EnsureStarted())
                 {
@@ -50,6 +51,7 @@ internal sealed class MpvPlayer : IDisposable
 
             if (!await LoadAndConfirmAsync(url, cancellationToken))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 RestartProcess();
                 if (!EnsureStarted() || !await LoadAndConfirmAsync(url, cancellationToken))
                 {
@@ -139,9 +141,8 @@ internal sealed class MpvPlayer : IDisposable
             return false;
         }
 
-        // mpv documents that loadfile returns before the old file is fully stopped and
-        // before the new one actually starts loading. Confirm that the player has left
-        // its idle state before reporting a successful channel switch.
+        // mpv returns from loadfile before the old file is fully stopped and before
+        // the replacement actually starts loading. Wait until the player leaves idle.
         var deadline = Environment.TickCount64 + 1800;
         while (Environment.TickCount64 < deadline)
         {
@@ -300,8 +301,8 @@ internal sealed class MpvPlayer : IDisposable
                 using var response = JsonDocument.Parse(responseLine);
                 var root = response.RootElement;
 
-                // IPC connections can also receive event messages. Ignore everything
-                // until the response carrying our request_id arrives.
+                // IPC connections can also receive event messages. Ignore them until
+                // the response carrying our request_id arrives.
                 if (!root.TryGetProperty("request_id", out var responseId) ||
                     responseId.ValueKind != JsonValueKind.Number ||
                     responseId.GetInt64() != requestId)
@@ -322,7 +323,13 @@ internal sealed class MpvPlayer : IDisposable
                 return new IpcResponse(true, data);
             }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // A newer channel selection cancelled this request. Let the cancellation
+            // propagate so the obsolete operation cannot restart or modify the player.
+            throw;
+        }
+        catch (OperationCanceledException)
         {
             return IpcResponse.Failed;
         }
