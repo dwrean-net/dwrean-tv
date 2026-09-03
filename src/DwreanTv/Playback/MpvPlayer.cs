@@ -38,15 +38,13 @@ internal sealed class MpvPlayer : IDisposable
                 return false;
             }
 
-            // A clean stop before loadfile is important for live DASH/HLS streams.
-            // It releases the previous demuxer before the next channel is attached.
             await SendCommandAsync(new object[] { "stop" }, 700, cancellationToken, allowFailure: true);
             await Task.Delay(60, cancellationToken);
 
             if (!await SendCommandAsync(new object[] { "loadfile", url, "replace" }, 1200, cancellationToken))
             {
-                // If mpv stopped responding while tearing down the previous stream,
-                // restart the engine once and retry the exact same Free-TV URL.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 RestartProcess();
                 if (!EnsureStarted())
                 {
@@ -209,7 +207,11 @@ internal sealed class MpvPlayer : IDisposable
 
             return true;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
         {
             return allowFailure;
         }
