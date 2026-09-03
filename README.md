@@ -4,7 +4,7 @@
 
 **Δωρεάν ελληνικά τηλεοπτικά κανάλια σε μία απλή portable εφαρμογή για Windows.**
 
-[![Λήψη](https://img.shields.io/badge/Λήψη-v0.3.1-EF2D32?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
+[![Λήψη](https://img.shields.io/badge/Λήψη-v0.3.2-EF2D32?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![Portable](https://img.shields.io/badge/Portable-Χωρίς%20εγκατάσταση-2E7D32?style=for-the-badge)](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 [![dwrean.net](https://img.shields.io/badge/dwrean.net-Επίσημο%20site-EF2D32?style=for-the-badge)](https://www.dwrean.net/)
@@ -58,6 +58,6 @@
 
 ### [⬇️ Κατέβασε την τελευταία έκδοση](https://github.com/dwrean-net/dwrean-tv/releases/latest)
 
-**v0.3.1 • Portable για Windows 64-bit**
+**v0.3.2 • Portable για Windows 64-bit**
 
 </div>
