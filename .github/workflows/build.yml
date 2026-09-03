@@ -52,12 +52,12 @@ jobs:
       - name: Create portable ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-v0.3.1-portable-win-x64.zip -Force
+          Compress-Archive -Path publish\* -DestinationPath dwrean-tv-v0.3.2-portable-win-x64.zip -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dwrean-tv-v0.3.1-portable-win-x64
+          name: dwrean-tv-v0.3.2-portable-win-x64
           path: publish
           if-no-files-found: error
           compression-level: 9
@@ -67,10 +67,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view v0.3.1 *> $null
+          gh release view v0.3.2 *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload v0.3.1 dwrean-tv-v0.3.1-portable-win-x64.zip --clobber
+            gh release upload v0.3.2 dwrean-tv-v0.3.2-portable-win-x64.zip --clobber
           }
           else {
-            gh release create v0.3.1 dwrean-tv-v0.3.1-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.3.1" --notes "Σταθερή έκδοση με καθαρό mpv-only playback, ομαλότερη εναλλαγή καναλιών και μικρότερο πακέτο χωρίς περιττές VLC εξαρτήσεις. Portable για Windows 10/11 64-bit." --latest
+            gh release create v0.3.2 dwrean-tv-v0.3.2-portable-win-x64.zip --target "${{ github.sha }}" --title "dwrean Ελληνική Τηλεόραση v0.3.2" --notes "Σταθερή έκδοση με διόρθωση race condition κατά τις συνεχόμενες εναλλαγές καναλιών. Οι ακυρωμένες παλιές επιλογές δεν μπορούν πλέον να επηρεάσουν ή να επανεκκινήσουν τον ενεργό mpv player. Portable για Windows 10/11 64-bit." --latest
           }
